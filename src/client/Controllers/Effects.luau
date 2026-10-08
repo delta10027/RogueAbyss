@@ -219,6 +219,112 @@ end
 handlers.Collapse = function(_e)
 	deps.Hud.FadeTo(0.7, 1.2)
 end
+handlers.Missile = function(e)
+	local bolt = localPart({
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(0.9, 0.9, 0.9),
+		Color = Color3.fromRGB(170, 190, 255),
+		Material = Enum.Material.Neon,
+		CFrame = CFrame.new(e.From),
+	})
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(150, 170, 255)
+	light.Range = 10
+	light.Brightness = 2
+	light.Parent = bolt
+	local t = math.clamp((e.To - e.From).Magnitude / 90, 0.08, 0.45)
+	TweenService:Create(bolt, TweenInfo.new(t, Enum.EasingStyle.Linear), { CFrame = CFrame.new(e.To) }):Play()
+	Audio.Play("Swing", e.From, 0.4, 1.6, 1)
+	task.delay(t, function()
+		puff(e.To, Color3.fromRGB(150, 160, 210), 8, 0.5)
+		bolt:Destroy()
+	end)
+end
+handlers.SlowWave = function(e)
+	ring(e.Pos, e.Radius, Color3.fromRGB(120, 150, 210), 2.5)
+	Audio.Play("Hiss", e.Pos, 0.4, 0.4, 1.5)
+end
+handlers.Blink = function(e)
+	puff(e.From + Vector3.new(0, 2, 0), Color3.fromRGB(150, 160, 210), 12, 0.6)
+	puff(e.To + Vector3.new(0, 2, 0), Color3.fromRGB(150, 160, 210), 12, 0.6)
+	Audio.Play("Swing", e.To, 0.5, 0.6, 1)
+end
+handlers.Teleport = function(_e)
+	deps.Hud.FadeTo(0.8, 0.05)
+	task.delay(0.15, function()
+		deps.Hud.FadeTo(0, 0.6)
+	end)
+end
+handlers.LevelUp = function(_e)
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		ring(root.Position - Vector3.new(0, 2.5, 0), 14, Color3.fromRGB(230, 200, 130), 3)
+		puff(root.Position, Color3.fromRGB(230, 200, 140), 14, 0.5)
+	end
+	Audio.Play("Bell", nil, 0.5, 1.5, 2)
+end
+handlers.Chest = function(e)
+	Audio.Play("Door", e.Pos, 0.6, 1.3, 1.5)
+	puff(e.Pos + Vector3.new(0, 2, 0), Color3.fromRGB(150, 130, 100), 8, 0.5)
+end
+handlers.Gold = function(_e)
+	Audio.Play("Bell", nil, 0.25, 2.2, 0.6)
+end
+handlers.Pickup = function(_e)
+	Audio.Play("Clank", nil, 0.2, 1.8, 0.5)
+end
+handlers.Equip = function(_e)
+	Audio.Play("Clank", nil, 0.3, 1.2, 0.6)
+end
+handlers.Kill = function(e)
+	puff(e.Pos, Color3.fromRGB(120, 112, 100), 10, 0.8)
+end
+handlers.Alert = function(e)
+	Audio.Play("Hiss", e.Pos, 0.35, 1.3, 0.8)
+end
+
+-- Scroll of Magic Mapping: an arrow on the ground beside you that points
+-- to the stairs down for a while.
+handlers.Reveal = function(e)
+	local function bar(): Part
+		return localPart({
+			Size = Vector3.new(0.5, 0.1, 2.4),
+			Color = Color3.fromRGB(230, 200, 130),
+			Material = Enum.Material.Neon,
+			Transparency = 0.3,
+		})
+	end
+	local arrow, tipL, tipR = bar(), bar(), bar()
+	local parts = { arrow, tipL, tipR }
+	local untilT = os.clock() + (e.Seconds or 45)
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local character = Players.LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if os.clock() > untilT or not root then
+			conn:Disconnect()
+			for _, p in parts do
+				p:Destroy()
+			end
+			return
+		end
+		local to = Vector3.new(e.Pos.X - root.Position.X, 0, e.Pos.Z - root.Position.Z)
+		local hidden = to.Magnitude < 8
+		for _, p in parts do
+			p.Transparency = if hidden then 1 else 0.3
+		end
+		if hidden then
+			return
+		end
+		local base = Vector3.new(root.Position.X, e.Pos.Y + 0.3, root.Position.Z) + to.Unit * 5
+		local cf = CFrame.lookAt(base, base + to.Unit)
+		arrow.CFrame = cf
+		-- Chevron head at the front end.
+		tipL.CFrame = cf * CFrame.new(0, 0, -1.2) * CFrame.Angles(0, math.rad(40), 0) * CFrame.new(0, 0, 1)
+		tipR.CFrame = cf * CFrame.new(0, 0, -1.2) * CFrame.Angles(0, math.rad(-40), 0) * CFrame.new(0, 0, 1)
+	end)
+end
 
 function Effects.Start(dependencies)
 	deps = dependencies

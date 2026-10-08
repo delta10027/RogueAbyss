@@ -1,7 +1,7 @@
 --!strict
--- Authoritative per-run player state: vigor, lantern fuel, inventory,
--- creeping. Also dresses the character so it reads as a small cloaked
--- explorer with a lantern instead of a default avatar (ART_BIBLE §13).
+-- Authoritative per-run player state: health, experience, gold, strength,
+-- equipment, the pack, lantern fuel and sneaking. Also dresses the character
+-- so it reads as a small cloaked explorer with a lantern (ART_BIBLE §13).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Items = require(Shared.Definitions.Items)
 local FloorRules = require(Shared.Definitions.FloorRules)
+local Abilities = require(Shared.Definitions.Abilities)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local PlayerStateService = {}
@@ -17,12 +18,23 @@ local S: any
 
 local L = Config.Lantern
 
+export type Entry = { Id: string, Count: number, Bonus: number }
+
 export type State = {
-	Vigor: number,
+	HP: number,
+	MaxHP: number,
+	Str: number,
+	Gold: number,
+	Exp: number,
+	Level: number,
+	Weapon: Entry,
+	Armor: Entry?,
 	Fuel: number,
 	Dim: boolean,
 	Creep: boolean,
-	Inventory: { string | false },
+	Pack: { Entry | false },
+	Cooldowns: { [string]: number },
+	Kills: number,
 	InvulnUntil: number,
 	LastNoiseAt: number,
 	LastStepAt: number,
@@ -30,17 +42,31 @@ export type State = {
 	LanternPart: BasePart?,
 }
 
+local function entry(id: string, count: number?, bonus: number?): Entry
+	return { Id = id, Count = count or 1, Bonus = bonus or 0 }
+end
+PlayerStateService.Entry = entry
+
 function PlayerStateService.NewState(): State
-	local inv = {}
-	for i = 1, Config.Player.InventorySlots do
-		inv[i] = false
+	local pack = {}
+	for i = 1, Config.Player.PackSlots do
+		pack[i] = false
 	end
 	return {
-		Vigor = Config.Player.MaxVigor,
+		HP = Config.Player.MaxHealth,
+		MaxHP = Config.Player.MaxHealth,
+		Str = Config.Player.Strength,
+		Gold = 0,
+		Exp = 0,
+		Level = 1,
+		Weapon = entry(Config.Player.StartWeapon),
+		Armor = entry(Config.Player.StartArmor),
 		Fuel = L.MaxFuel,
 		Dim = false,
 		Creep = false,
-		Inventory = inv,
+		Pack = pack,
+		Cooldowns = {},
+		Kills = 0,
 		InvulnUntil = 0,
 		LastNoiseAt = 0,
 		LastStepAt = 0,
@@ -143,12 +169,44 @@ function PlayerStateService.DressCharacter(character: Model)
 	end
 end
 
+-- Shows the wielded weapon on the left hand and tints the torso to the armor,
+-- so equipment changes are visible from the top-down camera.
+function PlayerStateService.DressGear(run)
+	local character = run.Player.Character
+	if not character then
+		return
+	end
+	local old = character:FindFirstChild("WeaponModel")
+	if old then
+		old:Destroy()
+	end
+	local hand = (character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")) :: BasePart?
+	local def = Items[run.PS.Weapon.Id]
+	if hand and def then
+		local long = ({ Dagger = 1.6, Mace = 3, Spear = 6.5, LongSword = 4, TwoHandedSword = 5.5, Quarterstaff = 5.5 } :: any)[def.Id] or 4
+		local w = gear(character, "WeaponModel", Vector3.new(0.25, long, 0.25), def.Color, if def.Id == "Quarterstaff" or def.Id == "Spear" then Enum.Material.Wood else Enum.Material.Metal)
+		weldTo(w, hand, CFrame.new(0, -0.3, -long / 2 + 0.4) * CFrame.Angles(math.rad(90), 0, 0))
+	end
+	local torso = (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")) :: BasePart?
+	local armor = run.PS.Armor and Items[run.PS.Armor.Id]
+	if torso then
+		if armor and armor.Id ~= "LeatherArmor" then
+			torso.Color = armor.Color
+			torso.Material = Enum.Material.Metal
+		else
+			torso.Color = Color3.fromRGB(62, 50, 42)
+			torso.Material = Enum.Material.Fabric
+		end
+	end
+end
+
 function PlayerStateService.AttachLantern(run)
 	local character = run.Player.Character
 	local glass = character and character:FindFirstChild("LanternGlass")
 	run.PS.LanternPart = glass
 	run.PS.Light = glass and glass:FindFirstChild("LanternLight") :: PointLight?
 	PlayerStateService.UpdateLantern(run)
+	PlayerStateService.DressGear(run)
 end
 
 -- Current light radius of the player's lantern.
@@ -178,21 +236,86 @@ function PlayerStateService.UpdateLantern(run)
 	end
 end
 
+-- A plain line for the message log at the top of the screen.
+function PlayerStateService.Message(run, text: string)
+	Remotes.Notice:FireClient(run.Player, { Kind = "Info", Text = text })
+end
+
+function PlayerStateService.ArmorValue(run): number
+	local a = run.PS.Armor
+	local def = a and Items[a.Id]
+	if not a or not def or not def.Armor then
+		return 0
+	end
+	return math.max(0, def.Armor + a.Bonus)
+end
+
+-- Effective stats of the wielded weapon, strength included.
+function PlayerStateService.WeaponStats(run)
+	local w = run.PS.Weapon
+	local def = Items[w.Id]
+	local ws = (def and def.Weapon) or (Items.Quarterstaff.Weapon :: any)
+	local strBonus = math.max(0, run.PS.Str - Config.Player.Strength)
+	return {
+		Damage = math.max(1, ws.Damage + w.Bonus + strBonus),
+		Range = ws.Range,
+		Arc = ws.Arc,
+		Cooldown = ws.Cooldown,
+		Windup = ws.Windup,
+		Noise = ws.Noise,
+	}
+end
+
+local function nextLevelExp(level: number): number?
+	return Config.Levels[level + 1]
+end
+
+function PlayerStateService.Unlocked(run, abilityId: string): boolean
+	local def = Abilities.ById[abilityId]
+	return def ~= nil and run.PS.Level >= def.Level
+end
+
+local function copyEntry(e: Entry?)
+	return if e then { Id = e.Id, Count = e.Count, Bonus = e.Bonus } else nil
+end
+
 function PlayerStateService.Push(player: Player)
 	local run = S.RunDirector.GetRun(player)
-	if not run then
+	if not run or not run.Floor then
 		return
 	end
 	local ps: State = run.PS
 	local known = S.DiscoveryService.Knows(player, "Rule" .. run.Floor.RuleId)
+	local pack = {}
+	for i, e in ps.Pack do
+		pack[i] = if e then copyEntry(e) else false
+	end
+	local cooldowns = {}
+	local now = os.clock()
+	for id, t in ps.Cooldowns do
+		if t > now then
+			cooldowns[id] = t - now
+		end
+	end
 	Remotes.StateUpdate:FireClient(player, {
-		Vigor = ps.Vigor,
-		MaxVigor = Config.Player.MaxVigor,
+		HP = ps.HP,
+		MaxHP = ps.MaxHP,
+		Str = ps.Str,
+		Gold = ps.Gold,
+		Exp = ps.Exp,
+		Level = ps.Level,
+		NextExp = nextLevelExp(ps.Level),
+		LevelExp = Config.Levels[ps.Level] or 0,
+		Armor = PlayerStateService.ArmorValue(run),
+		Damage = PlayerStateService.WeaponStats(run).Damage,
+		Weapon = copyEntry(ps.Weapon),
+		ArmorItem = copyEntry(ps.Armor),
 		Fuel = math.floor(ps.Fuel + 0.5),
 		MaxFuel = L.MaxFuel,
 		Dim = ps.Dim,
 		Creep = ps.Creep,
-		Inventory = ps.Inventory,
+		Pack = pack,
+		Cooldowns = cooldowns,
 		Depth = run.Depth,
 		RuleId = run.Floor.RuleId,
 		RuleName = if known then FloorRules[run.Floor.RuleId].Name else nil,
@@ -202,21 +325,34 @@ function PlayerStateService.Push(player: Player)
 end
 
 function PlayerStateService.FindItem(run, itemId: string): number?
-	for i, it in run.PS.Inventory do
-		if it == itemId then
+	for i, it in run.PS.Pack do
+		if it and it.Id == itemId then
 			return i
 		end
 	end
 	return nil
 end
 
-function PlayerStateService.AddItem(run, itemId: string): boolean
-	if not Items[itemId] then
+-- Adds an item to the pack, stacking where possible. Returns success.
+function PlayerStateService.AddItem(run, itemId: string, count: number?, bonus: number?): boolean
+	local def = Items[itemId]
+	if type(def) ~= "table" or def.Category == "Gold" or def.Category == "Treasure" then
 		return false
 	end
-	for i, it in run.PS.Inventory do
+	local n = count or 1
+	local pack = run.PS.Pack
+	if def.Stackable then
+		for _, it in pack do
+			if it and it.Id == itemId then
+				it.Count += n
+				PlayerStateService.Push(run.Player)
+				return true
+			end
+		end
+	end
+	for i, it in pack do
 		if it == false then
-			run.PS.Inventory[i] = itemId
+			pack[i] = entry(itemId, n, bonus)
 			PlayerStateService.Push(run.Player)
 			return true
 		end
@@ -224,14 +360,60 @@ function PlayerStateService.AddItem(run, itemId: string): boolean
 	return false
 end
 
+-- Removes one item from a stack (the slot empties when the stack does).
+function PlayerStateService.TakeOne(run, slot: number)
+	local it = run.PS.Pack[slot]
+	if not it then
+		return
+	end
+	it.Count -= 1
+	if it.Count <= 0 then
+		run.PS.Pack[slot] = false
+	end
+	PlayerStateService.Push(run.Player)
+end
+
 function PlayerStateService.RemoveSlot(run, slot: number)
-	run.PS.Inventory[slot] = false
+	run.PS.Pack[slot] = false
+	PlayerStateService.Push(run.Player)
+end
+
+function PlayerStateService.SwapSlots(run, a: number, b: number)
+	local pack = run.PS.Pack
+	pack[a], pack[b] = pack[b], pack[a]
+	PlayerStateService.Push(run.Player)
+end
+
+-- Wields/wears the item in `slot`; whatever was equipped takes its place.
+function PlayerStateService.Equip(run, slot: number)
+	local ps: State = run.PS
+	local it = ps.Pack[slot]
+	local def = it and Items[it.Id]
+	if not it or not def then
+		return
+	end
+	local name = Items.EntryName(it)
+	if def.Category == "Weapon" then
+		local old = ps.Weapon
+		ps.Weapon = it
+		ps.Pack[slot] = old
+		PlayerStateService.Message(run, "You are now wielding the " .. name .. ".")
+	elseif def.Category == "Armor" then
+		local old = ps.Armor
+		ps.Armor = it
+		ps.Pack[slot] = old or false
+		PlayerStateService.Message(run, "You are now wearing the " .. name .. ".")
+	else
+		return
+	end
+	PlayerStateService.DressGear(run)
+	Remotes.Effect:FireClient(run.Player, { Kind = "Equip" })
 	PlayerStateService.Push(run.Player)
 end
 
 function PlayerStateService.Heal(run, amount: number)
 	local ps: State = run.PS
-	ps.Vigor = math.min(Config.Player.MaxVigor, ps.Vigor + amount)
+	ps.HP = math.min(ps.MaxHP, ps.HP + amount)
 	PlayerStateService.Push(run.Player)
 end
 
@@ -241,7 +423,48 @@ function PlayerStateService.AddFuel(run, amount: number)
 	PlayerStateService.Push(run.Player)
 end
 
--- `cause` is a short id used for the failure explanation.
+function PlayerStateService.AddGold(run, amount: number)
+	if amount <= 0 then
+		return
+	end
+	run.PS.Gold += amount
+	Remotes.Effect:FireClient(run.Player, { Kind = "Gold" })
+	PlayerStateService.Push(run.Player)
+end
+
+function PlayerStateService.AddExp(run, amount: number)
+	local ps: State = run.PS
+	if amount <= 0 then
+		return
+	end
+	ps.Exp += amount
+	local need = nextLevelExp(ps.Level)
+	while need and ps.Exp >= need do
+		ps.Level += 1
+		ps.MaxHP += Config.Player.HealthPerLevel
+		ps.HP = math.min(ps.MaxHP, ps.HP + Config.Player.HealthPerLevel)
+		Remotes.Notice:FireClient(run.Player, {
+			Kind = "LevelUp",
+			Title = "Level up!",
+			Text = string.format("Welcome to experience level %d. Max health +%d.", ps.Level, Config.Player.HealthPerLevel),
+		})
+		for _, a in Abilities.List do
+			if a.Level == ps.Level then
+				Remotes.Notice:FireClient(run.Player, {
+					Kind = "Unlock",
+					Title = "New " .. string.lower(a.Kind) .. ": " .. a.Name .. "  [" .. a.Key .. "]",
+					Text = a.Description,
+				})
+			end
+		end
+		Remotes.Effect:FireClient(run.Player, { Kind = "LevelUp" })
+		S.RunDirector.RecordEvent(run, "Level" .. ps.Level, "Reached experience level " .. ps.Level .. ".")
+		need = nextLevelExp(ps.Level)
+	end
+	PlayerStateService.Push(run.Player)
+end
+
+-- `cause` is a short id used for the death screen. Armor reduces damage.
 function PlayerStateService.Damage(run, amount: number, cause: string, fromPos: Vector3?)
 	if run.State ~= "Active" then
 		return
@@ -252,9 +475,11 @@ function PlayerStateService.Damage(run, amount: number, cause: string, fromPos: 
 		return
 	end
 	ps.InvulnUntil = now + Config.Player.InvulnerableAfterHit
-	ps.Vigor = math.max(0, ps.Vigor - amount)
+	local block = math.min(Config.ArmorCap, PlayerStateService.ArmorValue(run) * Config.ArmorPerPoint)
+	local dealt = if cause == "Fire" then amount else math.max(1, math.floor(amount * (1 - block) + 0.5))
+	ps.HP = math.max(0, ps.HP - dealt)
 	run.Stats.LastHitBy = cause
-	Remotes.Effect:FireClient(run.Player, { Kind = "Hurt", Amount = amount, From = fromPos })
+	Remotes.Effect:FireClient(run.Player, { Kind = "Hurt", Amount = dealt, From = fromPos })
 	-- A small shove away from the source keeps hits readable.
 	local root = run.Player.Character and run.Player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root and fromPos then
@@ -265,7 +490,7 @@ function PlayerStateService.Damage(run, amount: number, cause: string, fromPos: 
 		end
 	end
 	PlayerStateService.Push(run.Player)
-	if ps.Vigor <= 0 then
+	if ps.HP <= 0 then
 		S.RunDirector.Fail(run, cause)
 	end
 end
@@ -287,7 +512,7 @@ function PlayerStateService.Tick(run, dt: number)
 		ps.Fuel = math.max(0, ps.Fuel - drain)
 		if ps.Fuel <= 0 then
 			PlayerStateService.UpdateLantern(run)
-			Remotes.Notice:FireClient(run.Player, { Kind = "Info", Text = "The lantern gutters out. Oil would revive it (R)." })
+			PlayerStateService.Message(run, "Your lantern is out of oil. Press R to refill it with an oil flask.")
 		end
 		-- Push in coarse steps; the client interpolates.
 		if math.floor(before / 5) ~= math.floor(ps.Fuel / 5) then

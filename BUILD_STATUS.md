@@ -837,7 +837,40 @@ ServerStorage.Assets.Creatures.<Kind> and verified in play (Listener heard, purs
 telegraphed and hit). Source: blender/RogueAbyss_Art.blend, exports in blender/exports/.
 These imported models live in the place file only - save the place after changing them.
 
-Studio debug hook: ServerScriptService.DebugHook:Invoke("creatures" | "goto", kind, dist | "run", "floor", n).
+Studio debug hook: ServerScriptService.DebugHook:Invoke("creatures" | "goto", kind, dist | "run", "floor", n
+| "run", "give", itemId, n | "run", "exp", n | "use", itemId | "cast", abilityId | "start").
+
+### Rogue-style RPG layer (2026-10-08, tested in Studio play mode)
+
+* Main menu (Play / How to Play / Journal / Records). Runs no longer auto-start; the server
+  waits for RequestRestart. Pause menu on M with "Quit to Main Menu" (RequestMenu).
+* Stats: Health (20, +4 per experience level), Strength, Armor, Gold, Experience levels
+  (Config.Levels). Status panel + Rogue-style message log at the top of the screen.
+* Gear (Definitions/Items): 6 weapons (quarterstaff, dagger, mace, spear, long sword,
+  two-handed sword) with damage/reach/arc/speed/noise; 6 armors (leather .. plate mail),
+  each point blocks 7% damage (cap 60%). +1/+2 enchantments. Weapon is visible on the character.
+* Consumables: potions (healing, extra healing, strength), scrolls (enchant weapon/armor,
+  magic mapping, teleportation), food rations, plus oil flasks and bells. Stackable.
+* Inventory: 12-slot pack, slots 1-4 are the hotbar. Inventory panel (I / Tab) to
+  wield/wear/drink/read/drop/move to hotbar (RequestInventory).
+* Chests (Fixtures.Chest, Definitions/Loot): 1-2 per level + secret room; ornate chest in
+  the vault. Loot rolled deterministically per seed when opened, spilled on the ground.
+  Gold piles on the floor; monsters drop gold; treasures (curios) are worth gold.
+* Monsters: Creatures/Beast.luau adds giant rats (packs), kobolds, bats (erratic, drawn to
+  a bright lantern), zombies (level 3+). They see only within lantern reach + 6 studs and
+  investigate noise, so dimming/sneaking matters. Every attack is telegraphed.
+* Abilities (AbilityService, Definitions/Abilities), unlocked by level with cooldowns:
+  Dash (2, Space), Magic Missile (3, Z), Light (4, X - counts as firelight for Watchers),
+  Slow Monster (5, C), Blink (6, V).
+* Death screen is a Rogue tombstone (name, gold, cause, level) + tips and run events.
+* Controls panel always on screen, toggled with H (adapts to keyboard / gamepad / touch).
+* All player-facing text rewritten in plain language (rules, journal, notes, prompts).
+
+Verified in play: menu loop (menu -> play -> death -> menu -> play), equip via inventory,
+melee kills + exp + level-up unlock notices, all five abilities, every scroll type, chest
+loot, plaque reading, death tombstone, pause menu. Generation soak 420 floors, 0 failures,
+deterministic. Not yet verified: gamepad and touch bindings, DataStore save of new stats
+(Studio has no API access), balance over a full run.
 
 
 
@@ -1031,7 +1064,15 @@ After meaningful implementation work, update this file.
 
 
 
-\## 2026-10-08 (implementation)
+\## 2026-10-08 (RPG layer)
+
+* Added main/pause menus, inventory, weapons, armor, potions, scrolls, food, chests, gold,
+  experience levels, abilities/spells, 4 new monster types, tombstone death screen,
+  toggleable controls panel, plain-language rewrite of all player-facing text
+* Chests are found in the dungeon only; nothing is purchasable (no loot-box monetisation)
+* Camera turn moved from Z/C to Left/Right arrow (Z/X/C/V are now spells)
+
+## 2026-10-08 (implementation)
 
 
 

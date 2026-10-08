@@ -32,6 +32,10 @@ function LightService.Flames(run): { Source }
 	for _, f in run.Fires do
 		table.insert(out, { Pos = f.Pos, Radius = Config.OilFire.LightRange * 0.6, Kind = "Fire", Ref = f })
 	end
+	-- The Light spell counts as firelight.
+	for _, l in run.Lights or {} do
+		table.insert(out, { Pos = l.Pos, Radius = S.AbilityService.LightRadius, Kind = "Spell", Ref = l })
+	end
 	return out
 end
 

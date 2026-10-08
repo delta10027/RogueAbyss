@@ -3,8 +3,9 @@
 -- for the experience creator. Chat: /ra <command> [args]
 --   seed <n>      restart the run with a fixed seed
 --   floor <n>     jump to depth n
---   give <item>   add an item (OilFlask, TinBell, Tincture, RustedKey)
---   heal          restore vigor and oil
+--   give <item> [n] add an item (any id in Definitions/Items)
+--   exp <n>       gain experience
+--   heal          restore health and oil
 --   reveal        a huge lantern for inspecting a floor
 --   info          print seed, depth, rule and layout
 --   validate      re-run validation on the current floor
@@ -50,9 +51,11 @@ function DebugService.Run(player: Player, args: { string })
 			reply(player, "depth " .. depth)
 		end
 	elseif cmd == "give" then
-		reply(player, if S.PlayerStateService.AddItem(run, args[2] or "") then "given" else "failed")
+		reply(player, if S.PlayerStateService.AddItem(run, args[2] or "", tonumber(args[3]) or 1) then "given" else "failed")
+	elseif cmd == "exp" then
+		S.PlayerStateService.AddExp(run, tonumber(args[2]) or 10)
 	elseif cmd == "heal" then
-		run.PS.Vigor = Config.Player.MaxVigor
+		run.PS.HP = run.PS.MaxHP
 		run.PS.Fuel = Config.Lantern.MaxFuel
 		S.PlayerStateService.UpdateLantern(run)
 		S.PlayerStateService.Push(player)
@@ -82,6 +85,9 @@ function DebugService.Hook(cmd: string, ...): string
 	if cmd == "run" then
 		DebugService.Run(player, args :: { string })
 		return "ok"
+	elseif cmd == "start" then
+		S.RunDirector.StartRun(player, tonumber(args[1]))
+		return "started"
 	elseif not run then
 		return "no run"
 	elseif cmd == "creatures" then
@@ -95,7 +101,19 @@ function DebugService.Hook(cmd: string, ...): string
 			end
 			table.insert(out, string.format("%s state=%s meshes=%d pos=%s", cr.Kind, tostring(cr.State), meshes, tostring(cr.Root.Position)))
 		end
-		return string.format("depth=%d rule=%s state=%s vigor=%d\n", run.Depth, run.Floor.RuleId, run.State, run.PS.Vigor) .. table.concat(out, "\n")
+		return string.format("depth=%d rule=%s state=%s hp=%d/%d lvl=%d exp=%d gold=%d\n", run.Depth, run.Floor.RuleId, run.State, run.PS.HP, run.PS.MaxHP, run.PS.Level, run.PS.Exp, run.PS.Gold) .. table.concat(out, "\n")
+	elseif cmd == "use" then
+		-- Use the first pack item with this id: hook:Invoke("use", "Teleportation")
+		local slot = S.PlayerStateService.FindItem(run, args[1])
+		if not slot then
+			return "not carried"
+		end
+		S.ItemService.Use(run, slot, nil)
+		return "used"
+	elseif cmd == "cast" then
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		S.AbilityService.Use(run, args[1], root and (root.Position + root.CFrame.LookVector * 15))
+		return "cast"
 	elseif cmd == "goto" then
 		-- Stand the player a few studs in front of the first creature of a kind.
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?

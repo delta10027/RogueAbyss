@@ -148,7 +148,7 @@ function Listener.OnStruck(cr, run, damage: number, fromPos: Vector3, ctx)
 	cr.Health -= damage
 	if cr.Health <= 0 then
 		cr.State = "Dead"
-		ctx.Event(run, "FelledListener", "Felled a Listener.")
+		ctx.Event(run, "FelledListener", "Defeated a Listener.")
 		ctx.Kill(run, cr)
 		return
 	end

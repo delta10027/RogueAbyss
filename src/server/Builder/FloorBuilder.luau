@@ -66,6 +66,7 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 		WoodDoors = {} :: { [string]: any },
 		Braziers = {} :: { [string]: any },
 		Items = {} :: { [number]: any },
+		Chests = {} :: { [string]: any },
 		Water = {} :: { any },
 		RoomRects = {} :: { [string]: { Min: Vector3, Max: Vector3 } },
 		Descent = nil :: any,
@@ -124,7 +125,7 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 		elseif c.Kind == "VaultDoor" then
 			local vaultEnd = if c.A == floor.VaultId then endA else endB
 			local model, open, slab = Fixtures.IronDoor(fixtures, vaultEnd.Band, vaultEnd.Axis)
-			local prompt = Fixtures.Prompt(slab, "Unlock", "Iron door", c.Id, 8)
+			local prompt = Fixtures.Prompt(slab, "Unlock", "Iron vault door", c.Id, 8)
 			built.VaultDoors[c.Id] = { Model = model, Open = open, Prompt = prompt, Pos = vaultEnd.Band, Opened = false }
 		elseif c.Kind == "Secret" then
 			local hostEnd = if c.A == floor.SecretId then endB else endA
@@ -182,7 +183,7 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 	-- Braziers.
 	for _, b in floor.Braziers do
 		local handle = Fixtures.Brazier(fixtures, W(b.Pos.X, b.Pos.Y), b.Lit)
-		local prompt = Fixtures.Prompt(handle.Bowl, "Kindle", "Cold brazier", b.Id, 7)
+		local prompt = Fixtures.Prompt(handle.Bowl, "Kindle", "Brazier (costs lantern oil)", b.Id, 7)
 		prompt.Enabled = not b.Lit
 		handle.Prompt = prompt
 		handle.Pos = W(b.Pos.X, b.Pos.Y)
@@ -197,10 +198,39 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 		local def = Items[it.ItemId]
 		local color = if def then def.Color else P.Gold
 		local pos = W(it.Pos.X, it.Pos.Y)
-		local model = Fixtures.ItemModel(itemsFolder, pos, it.ItemId, color)
-		local name = if def then def.Name else "Curio"
-		local prompt = Fixtures.Prompt(model.PrimaryPart :: BasePart, "Take", name, tostring(idx), 7)
-		built.Items[idx] = { ItemId = it.ItemId, Name = it.Name or name, Model = model, Prompt = prompt, Pos = pos, Taken = false }
+		local model = Fixtures.ItemModel(itemsFolder, pos, it.ItemId, color, if def then def.Category else nil)
+		local count, bonus = it.Count or 1, it.Bonus or 0
+		local label = if it.ItemId == "Gold" then (count .. " gold")
+			elseif it.ItemId == "Curio" then "Treasure"
+			else Items.EntryName({ Id = it.ItemId, Count = count, Bonus = bonus })
+		local prompt = Fixtures.Prompt(model.PrimaryPart :: BasePart, "Take", label, tostring(idx), 7)
+		built.Items[idx] = { ItemId = it.ItemId, Name = it.Name, Count = count, Bonus = bonus, Model = model, Prompt = prompt, Pos = pos, Taken = false }
+	end
+
+	-- Chests: contents are rolled by ItemService when opened.
+	local chestFolder = Kit.Folder(folder, "Chests")
+	for _, ch in floor.Chests or {} do
+		local pos = W(ch.Pos.X, ch.Pos.Y)
+		local rr = built.RoomRects[ch.RoomId]
+		local center = (rr.Min + rr.Max) / 2
+		local toCenter = Vector3.new(center.X - pos.X, 0, center.Z - pos.Z)
+		-- Face the room along the nearest axis.
+		local facing = if math.abs(toCenter.X) > math.abs(toCenter.Z)
+			then Vector3.new(math.sign(toCenter.X), 0, 0)
+			else Vector3.new(0, 0, if toCenter.Z == 0 then 1 else math.sign(toCenter.Z))
+		local model, body, open = Fixtures.Chest(chestFolder, pos, facing, ch.Quality)
+		local prompt = Fixtures.Prompt(body, "OpenChest", if ch.Quality >= 3 then "Ornate chest" else "Chest", ch.Id, 8)
+		built.Chests[ch.Id] = {
+			Id = ch.Id,
+			Model = model,
+			Prompt = prompt,
+			Pos = pos,
+			Front = facing,
+			Right = facing:Cross(Vector3.yAxis),
+			Quality = ch.Quality,
+			Opened = false,
+			Open = open,
+		}
 	end
 
 	-- The draft: dust drifts toward the way down.

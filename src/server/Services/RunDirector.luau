@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local FloorRules = require(Shared.Definitions.FloorRules)
 local Discoveries = require(Shared.Definitions.Discoveries)
+local Items = require(Shared.Definitions.Items)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local RunDirector = {}
@@ -25,17 +26,25 @@ local MACHINE_NOISE = 42
 local runs: { [Player]: any } = {}
 
 local CAUSE_TEXT = {
-	Listener = "A Listener heard you.",
-	Watcher = "A Watcher reached you in the dark.",
-	Fire = "You stood in your own fire.",
-	Abyss = "You fell into the abyss.",
+	Listener = "Killed by a Listener",
+	Watcher = "Killed by a Watcher",
+	Rat = "Killed by a giant rat",
+	Kobold = "Killed by a kobold",
+	Bat = "Killed by a bat",
+	Zombie = "Killed by a zombie",
+	Fire = "Burned to death",
+	Abyss = "Fell into the abyss",
 }
 
 local CAUSE_HINT = {
-	Listener = "Listeners are blind. Hold Shift to creep without a sound, or throw something noisy elsewhere.",
-	Watcher = "A Watcher cannot move while your lantern is on it - keep it in front of you, or hold it in firelight.",
-	Fire = "Burning oil hurts everything that stands in it, you included.",
-	Abyss = "The dark beyond the walls has no floor.",
+	Listener = "Tip: Listeners are blind and hunt by sound. Hold Shift to sneak silently, or throw a bell to send them somewhere else.",
+	Watcher = "Tip: Watchers can't move while your lantern light is on them. Keep facing them, or lure them into firelight.",
+	Rat = "Tip: Rats come in packs. Fight them in a doorway so they can only reach you one at a time.",
+	Kobold = "Tip: Kobolds spot you from the edge of your lantern light. Dim your lantern (F) to sneak past them.",
+	Bat = "Tip: Bats are drawn to a bright lantern. Dimming it (F) makes them much less likely to notice you.",
+	Zombie = "Tip: Zombies are slow but hit hard. Back off when it raises its arms, then hit it after the swing.",
+	Fire = "Tip: Burning oil hurts everything standing in it, including you.",
+	Abyss = "Tip: There is no floor outside the dungeon walls.",
 }
 
 function RunDirector.GetRun(player: Player)
@@ -47,7 +56,7 @@ function RunDirector.RecordEvent(run, id: string, text: string)
 		return
 	end
 	run.Stats.EventSeen[id] = true
-	table.insert(run.Stats.Events, string.format("Depth %d - %s", run.Depth, text))
+	table.insert(run.Stats.Events, string.format("Level %d: %s", run.Depth, text))
 	if Config.Debug then
 		print(string.format("[Run] %s: %s", run.Player.Name, text))
 	end
@@ -79,12 +88,12 @@ local function noteMissed(run)
 	end
 	for _, k in built.Cracked do
 		if not k.Broken then
-			table.insert(run.Stats.Missed, string.format("On depth %d, dust drifted into a wall.", floor.Depth))
+			table.insert(run.Stats.Missed, string.format("You missed a hidden room on level %d. Look for dust drifting into a cracked wall, then hit the wall.", floor.Depth))
 		end
 	end
 	for _, v in built.VaultDoors do
 		if not v.Opened then
-			table.insert(run.Stats.Missed, string.format("An iron door on depth %d stayed shut.", floor.Depth))
+			table.insert(run.Stats.Missed, string.format("You didn't open the iron vault on level %d. Its rusted key is always somewhere on the same level.", floor.Depth))
 		end
 	end
 end
@@ -94,6 +103,7 @@ local function teardownFloor(run)
 		S.RulesService.End(run)
 		S.CreatureService.Cleanup(run)
 		S.ItemService.ClearRun(run)
+		S.AbilityService.ClearRun(run)
 		S.DungeonService.Unload(run.Built)
 		run.Built = nil
 	end
@@ -117,6 +127,7 @@ function RunDirector.EnterFloor(run, depth: number)
 	run.Floor = floorOrErr
 	run.Built = built
 	run.Fires = {}
+	run.Lights = {}
 	run.MachineTimer = MACHINE_INTERVAL
 	run.LurchUntil = 0
 	S.RulesService.Begin(run)
@@ -124,9 +135,9 @@ function RunDirector.EnterFloor(run, depth: number)
 
 	-- The key never survives the descent.
 	if depth > 1 then
-		for i, it in run.PS.Inventory do
-			if it == "RustedKey" then
-				run.PS.Inventory[i] = false
+		for i, it in run.PS.Pack do
+			if it and it.Id == "RustedKey" then
+				run.PS.Pack[i] = false
 			end
 		end
 	end
@@ -156,6 +167,7 @@ end
 function RunDirector.StartRun(player: Player, seed: number?)
 	local old = runs[player]
 	if old then
+		old.State = "Ended"
 		teardownFloor(old)
 		S.DungeonService.ReleaseSlot(old.Slot)
 		runs[player] = nil
@@ -168,6 +180,7 @@ function RunDirector.StartRun(player: Player, seed: number?)
 		State = "Starting",
 		PS = S.PlayerStateService.NewState(),
 		Fires = {},
+		Lights = {},
 		Creatures = {},
 		RuleFlags = {},
 		Phase = 0,
@@ -180,11 +193,16 @@ function RunDirector.StartRun(player: Player, seed: number?)
 			Curios = {},
 			Missed = {},
 			ItemsUsed = 0,
+			Kills = 0,
+			ChestsOpened = 0,
 			SecretsFound = 0,
 			FloorsCleared = 0,
 			LastHitBy = nil,
 		},
 	}
+	-- Starting kit, Rogue-style: food and a potion alongside the staff and leather armor.
+	run.PS.Pack[1] = S.PlayerStateService.Entry("Tincture", 1)
+	run.PS.Pack[2] = S.PlayerStateService.Entry("Ration", 1)
 	runs[player] = run
 	local data = S.PersistenceService.Get(player)
 	data.Stats.Runs += 1
@@ -208,6 +226,7 @@ function RunDirector.Descend(run)
 	data.Stats.FloorsCleared += 1
 	S.PersistenceService.MarkDirty(run.Player)
 	Remotes.Effect:FireClient(run.Player, { Kind = "Descend" })
+	S.PlayerStateService.AddExp(run, Config.DescendExp)
 	task.delay(0.9, function()
 		if runs[run.Player] ~= run then
 			return
@@ -233,6 +252,8 @@ function RunDirector.Fail(run, cause: string)
 	local data = S.PersistenceService.Get(run.Player)
 	data.Stats.Deaths += 1
 	data.Stats.Curios += #run.Stats.Curios
+	data.Stats.Kills += run.Stats.Kills or 0
+	data.Stats.BestGold = math.max(data.Stats.BestGold, run.PS.Gold)
 	S.PersistenceService.MarkDirty(run.Player)
 	Remotes.Effect:FireClient(run.Player, { Kind = "Collapse" })
 
@@ -248,10 +269,17 @@ function RunDirector.Fail(run, cause: string)
 		hint = (hint and (hint .. "\n") or "") .. run.Stats.Missed[1]
 	end
 	local summary = {
+		Name = run.Player.DisplayName,
 		Depth = run.Depth,
 		Duration = math.floor(os.clock() - run.Stats.StartTime),
 		Cause = cause,
-		CauseText = CAUSE_TEXT[cause] or "The dark took you.",
+		CauseText = CAUSE_TEXT[cause] or "Killed in the dungeon",
+		Gold = run.PS.Gold,
+		Level = run.PS.Level,
+		Kills = run.Stats.Kills or 0,
+		Chests = run.Stats.ChestsOpened or 0,
+		Weapon = Items.EntryName(run.PS.Weapon),
+		BestGold = data.Stats.BestGold,
 		Hint = hint,
 		Discoveries = found,
 		Events = run.Stats.Events,
@@ -274,6 +302,7 @@ local function tickRun(run, dt: number)
 	S.RulesService.Tick(run, dt)
 	S.CreatureService.Tick(run, dt)
 	S.ItemService.Tick(run, dt)
+	S.AbilityService.Tick(run, dt)
 
 	-- The buried machine clanks on a rhythm while it runs.
 	local machine = run.Built and run.Built.Machine
@@ -319,7 +348,10 @@ local function onCharacter(player: Player, character: Model)
 		end)
 	end
 	local run = runs[player]
-	if not run or run.PendingRestart then
+	if not run then
+		-- Waiting at the main menu; the run starts when they press Play.
+		return
+	elseif run.PendingRestart then
 		local ok, err = pcall(RunDirector.StartRun, player)
 		if not ok then
 			warn("[RunDirector] could not start run: " .. tostring(err))
@@ -363,6 +395,30 @@ function RunDirector.Init(registry)
 			runs[player] = nil
 		end
 	end)
+	-- Back to the main menu: the current run is abandoned (not saved as a death).
+	Remotes.RequestMenu.OnServerEvent:Connect(function(player)
+		local run = runs[player]
+		if not run or run.State == "Transition" then
+			return
+		end
+		run.State = "Ended"
+		teardownFloor(run)
+		S.DungeonService.ReleaseSlot(run.Slot)
+		runs[player] = nil
+		local root = rootOf(player)
+		if root then
+			root.Anchored = true
+		end
+	end)
+	Remotes.GetProfile.OnServerInvoke = function(player)
+		local data = S.PersistenceService.Get(player)
+		local run = runs[player]
+		return {
+			Stats = table.clone(data.Stats),
+			Known = S.DiscoveryService.KnownList(player),
+			InRun = run ~= nil and run.State == "Active",
+		}
+	end
 	Remotes.RequestRestart.OnServerEvent:Connect(function(player)
 		local run = runs[player]
 		if run and run.State == "Transition" then

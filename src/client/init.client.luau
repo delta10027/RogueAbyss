@@ -10,15 +10,19 @@ local Hud = require(Controllers.Hud)
 local Effects = require(Controllers.Effects)
 local Prompts = require(Controllers.Prompts)
 local Input = require(Controllers.InputController)
+local Panels = require(Controllers.Panels)
 
 local deps = {
 	Camera = Camera,
+	Character = Character,
 	Hud = Hud,
+	Panels = Panels,
 	Effects = Effects,
 	Input = Input,
 }
 
 Hud.Start(deps)
+Panels.Start(deps)
 Camera.Start()
 Character.Start()
 Effects.Start(deps)

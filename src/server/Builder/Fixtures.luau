@@ -25,10 +25,23 @@ local function wallFrame(pos: Vector3, axis: string): CFrame
 end
 Fixtures.WallFrame = wallFrame
 
+-- Plain verbs shown to the player; the internal action id stays stable.
+local ACTION_TEXT = {
+	Take = "Pick up",
+	Kindle = "Light",
+	Descend = "Go down",
+	Drink = "Drink",
+	Read = "Read",
+	Open = "Open",
+	Unlock = "Unlock",
+	Pull = "Pull",
+	OpenChest = "Open",
+}
+
 function Fixtures.Prompt(parent: Instance, action: string, objectText: string, ref: string?, distance: number?): ProximityPrompt
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "Prompt"
-	prompt.ActionText = action
+	prompt.ActionText = ACTION_TEXT[action] or action
 	prompt.ObjectText = objectText
 	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -488,11 +501,157 @@ function Fixtures.Descent(parent: Instance, center: Vector3, size: number)
 	return model, promptPart
 end
 
+-- A wooden chest with an iron band. Returns the model, the prompt part and
+-- an Open() function that swings the lid back.
+function Fixtures.Chest(parent: Instance, pos: Vector3, facing: Vector3, quality: number)
+	local model = Kit.Model(parent, "Chest")
+	local cf = CFrame.lookAt(pos, pos + facing)
+	local wood = if quality >= 3 then P.Burgundy else P.Wood
+	local body = Kit.Part(model, {
+		Name = "Body",
+		Size = Vector3.new(3.4, 1.8, 2.2),
+		CFrame = cf * CFrame.new(0, 0.9, 0),
+		Color = wood,
+		Material = Enum.Material.Wood,
+	})
+	local hinge = cf * CFrame.new(0, 1.8, 1.1)
+	local lid = Kit.Part(model, {
+		Name = "Lid",
+		Size = Vector3.new(3.5, 0.6, 2.3),
+		CFrame = hinge * CFrame.new(0, 0.3, -1.15),
+		Color = wood,
+		Material = Enum.Material.Wood,
+	})
+	local bandColor = if quality >= 3 then P.Gold else P.OldIron
+	for _, x in { -1.2, 1.2 } do
+		Kit.Deco(model, {
+			Size = Vector3.new(0.3, 2.5, 2.35),
+			CFrame = cf * CFrame.new(x, 1.2, 0),
+			Color = bandColor,
+			Material = Enum.Material.Metal,
+		})
+	end
+	local lock = Kit.Deco(model, {
+		Size = Vector3.new(0.5, 0.6, 0.2),
+		CFrame = cf * CFrame.new(0, 1.6, -1.15),
+		Color = bandColor,
+		Material = Enum.Material.Metal,
+	})
+	model.PrimaryPart = body
+	local function open()
+		local lidOffset = hinge:ToObjectSpace(lid.CFrame)
+		local target = hinge * CFrame.Angles(math.rad(105), 0, 0) * lidOffset
+		TweenService:Create(lid, TweenInfo.new(0.5, Enum.EasingStyle.Back), { CFrame = target }):Play()
+		lock.Transparency = 1
+		local glow = Kit.Attachment(body, Vector3.new(0, 1, 0))
+		Kit.PointLight(glow, Color3.fromRGB(255, 200, 120), 8, 0.8, false)
+	end
+	return model, body, open
+end
+
 -- Physical item models (ART_BIBLE §16): small, grounded, no beams.
-function Fixtures.ItemModel(parent: Instance, pos: Vector3, itemId: string, color: Color3): Model
+function Fixtures.ItemModel(parent: Instance, pos: Vector3, itemId: string, color: Color3, category: string?): Model
 	local model = Kit.Model(parent, "Item_" .. itemId)
 	local base: BasePart
-	if itemId == "OilFlask" then
+	if category == "Weapon" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Size = Vector3.new(0.35, 0.25, 3.4),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, math.rad(35), 0),
+			Color = color,
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		})
+		Kit.Deco(model, {
+			Size = Vector3.new(1.3, 0.3, 0.3),
+			CFrame = base.CFrame * CFrame.new(0, 0, 1.1),
+			Color = P.DarkBrown,
+			Material = Enum.Material.Wood,
+		})
+		-- A faint glint so gear reads in the dark.
+		Kit.PointLight(base, Color3.fromRGB(200, 190, 160), 5, 0.6, false)
+	elseif category == "Armor" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Size = Vector3.new(2, 0.4, 1.6),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, math.rad(20), 0),
+			Color = color,
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		})
+		Kit.Deco(model, {
+			Size = Vector3.new(2.6, 0.35, 0.6),
+			CFrame = base.CFrame * CFrame.new(0, 0.05, -0.8),
+			Color = color,
+			Material = Enum.Material.Metal,
+		})
+		Kit.PointLight(base, Color3.fromRGB(200, 190, 160), 5, 0.6, false)
+	elseif category == "Potion" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(0.9, 0.9, 0.9),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.45, 0)),
+			Color = color,
+			Material = Enum.Material.Glass,
+			Transparency = 0.1,
+			CanCollide = false,
+		})
+		Kit.Deco(model, {
+			Size = Vector3.new(0.3, 0.5, 0.3),
+			CFrame = CFrame.new(pos + Vector3.new(0, 1.1, 0)),
+			Color = P.Wood,
+			Material = Enum.Material.Wood,
+		})
+		Kit.PointLight(base, color, 4, 0.5, false)
+	elseif category == "Scroll" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(1.4, 0.45, 0.45),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.23, 0)) * CFrame.Angles(0, math.rad(60), 0),
+			Color = P.Parchment,
+			Material = Enum.Material.Fabric,
+			CanCollide = false,
+		})
+		Kit.Deco(model, {
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.2, 0.5, 0.5),
+			CFrame = base.CFrame,
+			Color = P.Burgundy,
+			Material = Enum.Material.Fabric,
+		})
+	elseif category == "Food" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Size = Vector3.new(1.2, 0.5, 0.8),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.25, 0)) * CFrame.Angles(0, math.rad(15), 0),
+			Color = color,
+			Material = Enum.Material.Fabric,
+			CanCollide = false,
+		})
+	elseif category == "Gold" then
+		base = Kit.Part(model, {
+			Name = "Body",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.3, 1.1, 1.1),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = color,
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		})
+		for i = 1, 3 do
+			local a = i * 2.1
+			Kit.Deco(model, {
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(0.15, 0.6, 0.6),
+				CFrame = CFrame.new(pos + Vector3.new(math.cos(a) * 0.7, 0.08 + i * 0.05, math.sin(a) * 0.7)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = color,
+				Material = Enum.Material.Metal,
+			})
+		end
+		Kit.PointLight(base, Color3.fromRGB(255, 200, 110), 5, 0.7, false)
+	elseif itemId == "OilFlask" then
 		base = Kit.Part(model, {
 			Name = "Body",
 			Shape = Enum.PartType.Ball,

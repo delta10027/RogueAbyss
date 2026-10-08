@@ -15,6 +15,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local RNG = require(Shared.RNG)
 local RoomDefs = require(Shared.Definitions.Rooms)
+local Loot = require(Shared.Definitions.Loot)
 
 local Graph = require(script.Parent.Graph)
 local Validator = require(script.Parent.Validator)
@@ -26,22 +27,22 @@ local FloorGenerator = {}
 local RULE_POOL = { "Echoes", "HungryDark", "Tolling" }
 
 local CURIOS = {
-	"a brass astrolabe shard",
-	"a wax-sealed letter, unopened",
-	"a carved ivory fish",
-	"a key with no teeth",
-	"a lens that shows the room darker",
-	"a child's tin soldier, painted black",
-	"a compass needle that points down",
-	"a page of a map of this floor, wrong",
+	"a brass astrolabe",
+	"a jeweled ring",
+	"a carved ivory figurine",
+	"a silver chalice",
+	"a gold-trimmed hand mirror",
+	"a ruby pendant",
+	"an old gold coin purse",
+	"a jade idol",
 }
 
 local CAMP_NOTES = {
-	"Third night. The tall ones cannot see. I have stopped wearing boots.",
-	"The bell on the lower floor is not rung by anyone. I checked.",
-	"Statues moved again while I slept. I keep the lamp facing them now.",
-	"Follow the dust. The air knows the way down. I wish I had noticed sooner.",
-	"Left the spare oil. Whoever you are, go further than I did.",
+	"Day three. The tall ones with the big ears are blind - they only hear you. I walk slowly now.",
+	"The big bell on the lower level rings by itself, every half minute or so. The marked gates open and close with it.",
+	"The statues moved while I slept. Keep your lantern pointed at them and they can't move.",
+	"The dust always drifts toward the stairs down. I wish I had noticed that sooner.",
+	"I left some spare oil here. Whoever you are, I hope you get further than I did.",
 }
 
 export type Rect = { X0: number, Z0: number, X1: number, Z1: number }
@@ -212,6 +213,7 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 		Connections = {} :: { any },
 		Encounters = {} :: { any },
 		Items = {} :: { any },
+		Chests = {} :: { any },
 		Braziers = {} :: { any },
 		Notes = {} :: { any },
 		Events = {} :: { string },
@@ -599,13 +601,84 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 		end
 	end
 
+	-- Ordinary monsters (Beast.luau): packs of rats, kobolds, bats, zombies.
+	local beastCounts = {
+		Rat = if depth == 1 then 1 else encounters:Int(1, 2),
+		Kobold = if depth == 1 then 1 elseif depth <= 3 then 2 else encounters:Int(2, 3),
+		Bat = if depth < 2 then 0 else encounters:Int(1, 2),
+		Zombie = if depth < 3 then 0 elseif depth < 5 then 1 else 2,
+	}
+	local beastRooms: { [string]: number } = {}
+	for _, kind in { "Zombie", "Kobold", "Bat", "Rat" } do
+		local n = beastCounts[kind]
+		encounters:Shuffle(pool)
+		for _, id in pool do
+			if n <= 0 then
+				break
+			end
+			local r = floor.Rooms[id]
+			if RoomDefs[r.Archetype].CanHoldCreature and (startDist[id] or 0) >= (if depth == 1 then 1 else 2) and (beastRooms[id] or 0) < 2 then
+				beastRooms[id] = (beastRooms[id] or 0) + 1
+				local packSize = if kind == "Rat" then encounters:Int(2, 3) else 1
+				for _ = 1, packSize do
+					local rect = r.Rect
+					table.insert(floor.Encounters, {
+						Kind = kind,
+						RoomId = id,
+						Pos = Vector2.new(encounters:Float(rect.X0 + 5, rect.X1 - 5), encounters:Float(rect.Z0 + 5, rect.Z1 - 5)),
+					})
+				end
+				n -= 1
+			end
+		end
+	end
+
 	-- Items ---------------------------------------------------------------
-	local function placeItem(itemId: string, id: string, pos: Vector2?)
+	local function doorPoints(id: string): { Vector2 }
+		local out = {}
+		for _, c in floor.Connections do
+			if c.A == id then
+				table.insert(out, c.DoorA.Pos)
+			elseif c.B == id then
+				table.insert(out, c.DoorB.Pos)
+			end
+		end
+		return out
+	end
+	-- A wall spot that keeps clear of the room's doorways.
+	local function clearSpot(id: string, inset: number): Vector2
 		local r = floor.Rooms[id]
+		local doors = doorPoints(id)
+		local spot = wallSpot(itemStream, r.Rect, inset)
+		for _ = 1, 8 do
+			local ok = true
+			for _, d in doors do
+				if (d - spot).Magnitude < 9 then
+					ok = false
+				end
+			end
+			if ok then
+				return spot
+			end
+			spot = wallSpot(itemStream, r.Rect, inset)
+		end
+		return spot
+	end
+	local function placeItem(itemId: string, id: string, pos: Vector2?, count: number?, bonus: number?)
 		table.insert(floor.Items, {
 			ItemId = itemId,
 			RoomId = id,
-			Pos = pos or wallSpot(itemStream, r.Rect, 4),
+			Pos = pos or clearSpot(id, 4),
+			Count = count or 1,
+			Bonus = bonus or 0,
+		})
+	end
+	local function placeChest(id: string, quality: number, pos: Vector2?)
+		table.insert(floor.Chests, {
+			Id = "c" .. (#floor.Chests + 1),
+			RoomId = id,
+			Pos = pos or clearSpot(id, 4),
+			Quality = quality,
 		})
 	end
 
@@ -647,14 +720,31 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 	end
 	if vaultId then
 		local vr = floor.Rooms[vaultId]
-		placeItem("Tincture", vaultId)
-		placeItem("OilFlask", vaultId)
+		placeChest(vaultId, 3)
 		placeItem("Curio", vaultId, vr.Center)
 	end
 	do
 		local srr = floor.Rooms[secretId]
 		placeItem("Curio", secretId, srr.Center)
-		placeItem(if itemStream:Chance(0.5) then "Tincture" else "OilFlask", secretId)
+		placeChest(secretId, 2)
+	end
+
+	-- Gear, potions and scrolls lying around, gold piles and chests.
+	if depth == 1 then
+		local weapon = itemStream:Pick({ "Dagger", "Mace", "Spear" })
+		placeItem(weapon, anyRoom())
+		placeItem("Ration", anyRoom())
+	end
+	for _ = 1, itemStream:Int(1, 2) do
+		local roll = Loot.Roll(itemStream, depth, 1)
+		placeItem(roll.ItemId, anyRoom(), nil, roll.Count, roll.Bonus)
+	end
+	for _ = 1, itemStream:Int(2, 3) do
+		placeItem("Gold", anyRoom(), nil, Loot.Gold(itemStream, depth, 1))
+	end
+	local chests = if depth == 1 then 1 else itemStream:Int(1, 2)
+	for _ = 1, chests do
+		placeChest(anyRoom(), 2)
 	end
 	if floor.CampId then
 		placeItem("OilFlask", floor.CampId)

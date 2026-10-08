@@ -18,9 +18,9 @@ export type RuleInfo = {
 local FloorRules: { [string]: RuleInfo } = {
 	Echoes = {
 		Id = "Echoes",
-		Name = "The Echoing Halls",
-		Plaque = "HERE EVERY STEP IS CARRIED FARTHER THAN IT SHOULD BE",
-		Known = "Sound travels almost twice as far. Creep, or make the noise somewhere useful.",
+		Name = "Echoing Halls",
+		Plaque = "Sounds carry much farther on this level.",
+		Known = "Every sound travels almost twice as far on this level. Sneak (hold Shift), or make noise on purpose to pull monsters away.",
 		Glyph = {
 			{ 0.18, 0.5, 0.3, 0.5 },
 			{ 0.42, 0.32, 0.54, 0.5 },
@@ -32,9 +32,9 @@ local FloorRules: { [string]: RuleInfo } = {
 	},
 	HungryDark = {
 		Id = "HungryDark",
-		Name = "The Hungry Dark",
-		Plaque = "THE BLIND ONES REMEMBER WARMTH",
-		Known = "Listeners are drawn to flame - braziers, burning oil and an undimmed lantern.",
+		Name = "Hungry Dark",
+		Plaque = "Listeners are drawn to fire on this level.",
+		Known = "Listeners are drawn to fire on this level: lit braziers, burning oil and your lantern when it isn't dimmed. Dim your lantern (F), or light a fire somewhere else as bait.",
 		Glyph = {
 			{ 0.5, 0.1, 0.24, 0.86 },
 			{ 0.5, 0.1, 0.76, 0.86 },
@@ -45,9 +45,9 @@ local FloorRules: { [string]: RuleInfo } = {
 	},
 	Tolling = {
 		Id = "Tolling",
-		Name = "The Tolling Floor",
-		Plaque = "WHEN THE GREAT BELL SPEAKS THE MARKED GATES ANSWER",
-		Known = "A bell tolls on a rhythm. Marked gates swap, and Watchers lurch. A bell of your own can answer a gate.",
+		Name = "Tolling Bell",
+		Plaque = "A great bell rings on this level, and the marked gates open and close with it.",
+		Known = "A great bell rings every 24 seconds. Each time, the marked gates swap between open and closed, and Watchers jerk forward even if you are looking at them. Ringing a tin bell next to a marked gate makes it swap early.",
 		Glyph = {
 			{ 0.5, 0.1, 0.5, 0.28 },
 			{ 0.3, 0.28, 0.7, 0.28 },

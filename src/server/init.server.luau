@@ -36,6 +36,7 @@ local order = {
 	"RulesService",
 	"ItemService",
 	"CombatService",
+	"AbilityService",
 	"InteractionService",
 	"RunDirector",
 	"DebugService",

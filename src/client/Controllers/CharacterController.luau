@@ -47,6 +47,41 @@ local function groundAim(root: BasePart): Vector3?
 	return ray.Origin + ray.Direction * t
 end
 
+-- Dash: a short burst of speed in the direction you are walking (or facing).
+-- The character is client-owned, so the client moves it; the server only
+-- grants the brief invulnerability.
+function CharacterController.Dash()
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not root or not humanoid then
+		return
+	end
+	local dir = humanoid.MoveDirection
+	if dir.Magnitude < 0.1 then
+		dir = root.CFrame.LookVector
+	end
+	dir = Vector3.new(dir.X, 0, dir.Z)
+	if dir.Magnitude < 0.01 then
+		return
+	end
+	local att = Instance.new("Attachment")
+	att.Parent = root
+	local lv = Instance.new("LinearVelocity")
+	lv.Attachment0 = att
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+	lv.PrimaryTangentAxis = Vector3.xAxis
+	lv.SecondaryTangentAxis = Vector3.zAxis
+	lv.PlaneVelocity = Vector2.new(dir.Unit.X, dir.Unit.Z) * 58
+	lv.MaxForce = 1e6
+	lv.Parent = root
+	task.delay(0.2, function()
+		lv:Destroy()
+		att:Destroy()
+	end)
+end
+
 function CharacterController.Start()
 	local player = Players.LocalPlayer
 	if player.Character then

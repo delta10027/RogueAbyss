@@ -113,7 +113,7 @@ function Dressers.Antechamber(ctx: Ctx)
 	Fixtures.Glyph(ctx.Parent, face, 3.2, rule.Glyph, P.Parchment, 0.26, false)
 	-- The glyph is also carved, large, into the floor so it reads from above.
 	Fixtures.FloorGlyph(ctx.Parent, ctx.W(cx, cz + d * 0.08), 5.5, rule.Glyph, Color3.fromRGB(150, 128, 92))
-	local prompt = Fixtures.Prompt(stele, "Read", "Stele", ctx.Floor.RuleId, 9)
+	local prompt = Fixtures.Prompt(stele, "Read", "Plaque", ctx.Floor.RuleId, 9)
 	ctx.Built.StelePrompt = prompt
 	ctx.Built.Spawn = CFrame.lookAt(ctx.W(cx, cz + d * 0.3, 3), ctx.W(cx, cz - d, 3))
 end
@@ -123,7 +123,7 @@ function Dressers.Stairwell(ctx: Ctx)
 	local cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
 	local size = 10
 	local model, anchor = Fixtures.Descent(ctx.Parent, ctx.W(cx, cz), size)
-	local prompt = Fixtures.Prompt(anchor, "Descend", "Stair into the dark", nil, 10)
+	local prompt = Fixtures.Prompt(anchor, "Descend", "Stairs down", nil, 10)
 	ctx.Built.Descent = { Prompt = prompt, Pos = ctx.W(cx, cz), Model = model }
 	for _, c in { { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } } do
 		local px, pz = cx + c[1] * (size / 2 + 2.5), cz + c[2] * (size / 2 + 2.5)
@@ -324,7 +324,7 @@ function Dressers.Shrine(ctx: Ctx)
 		Material = Enum.Material.Glass,
 		Transparency = 0.2,
 	})
-	local prompt = Fixtures.Prompt(basin, "Drink", "Still water", nil, 8)
+	local prompt = Fixtures.Prompt(basin, "Drink", "Healing fountain", nil, 8)
 	ctx.Built.Shrine = { Prompt = prompt, Water = water, Used = false, RoomId = ctx.Room.Id }
 	-- Symmetric candle rows.
 	for i = 0, 3 do

@@ -3,10 +3,18 @@
 -- ServerScriptService.Server.Creatures.*; this service provides the shared
 -- context (movement, senses, damage) and a relevance-based update budget.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Monsters = require(Shared.Definitions.Monsters)
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+
 local Server = script.Parent.Parent
 local Nav = require(Server.Creatures.Nav)
 local Listener = require(Server.Creatures.Listener)
 local Watcher = require(Server.Creatures.Watcher)
+local Beast = require(Server.Creatures.Beast)
 local Body = require(Server.Creatures.Body)
 
 local CreatureService = {}
@@ -16,6 +24,10 @@ local S: any
 local KINDS: { [string]: any } = {
 	Listener = Listener,
 	Watcher = Watcher,
+	Rat = Beast,
+	Kobold = Beast,
+	Bat = Beast,
+	Zombie = Beast,
 }
 
 -- Relevance budget (TECH_ARCHITECTURE §14): far creatures update rarely.
@@ -32,6 +44,23 @@ end
 
 function ctx.Discover(run, id: string)
 	S.DiscoveryService.Discover(run.Player, id)
+end
+
+function ctx.Message(run, text: string)
+	S.PlayerStateService.Message(run, text)
+end
+
+function ctx.MonsterName(kind: string): string
+	local m = Monsters[kind]
+	return if m then m.Name else string.lower(kind)
+end
+
+function ctx.LanternRange(run): number
+	return S.PlayerStateService.LanternRange(run)
+end
+
+function ctx.LineOfSight(run, a: Vector3, b: Vector3): boolean
+	return S.LightService.LineOfSight(run, a, b)
 end
 
 function ctx.Event(run, id: string, text: string)
@@ -114,6 +143,9 @@ function ctx.MoveTo(cr, goal: Vector3?, speed: number): boolean
 			return true -- unreachable: give up so the state machine moves on
 		end
 	end
+	if os.clock() < (cr.SlowUntil or 0) then
+		speed *= 0.5
+	end
 	cr.Humanoid.WalkSpeed = speed
 	local route = cr.Route
 	while route and #route > 0 and flatDist(cr.Root.Position, route[1]) < 2.2 do
@@ -141,12 +173,27 @@ function ctx.MoveTo(cr, goal: Vector3?, speed: number): boolean
 	return false
 end
 
+-- A monster dies: experience, a possible gold drop, and a message.
 function ctx.Kill(run, cr)
+	local pos = cr.Root.Position
 	Body.Dissolve(cr.Model)
 	local idx = table.find(run.Creatures, cr)
 	if idx then
 		table.remove(run.Creatures, idx)
 	end
+	local info = Monsters[cr.Kind]
+	if not info then
+		return
+	end
+	run.PS.Kills += 1
+	run.Stats.Kills = (run.Stats.Kills or 0) + 1
+	S.PlayerStateService.Message(run, "You defeated the " .. info.Name .. ". (+" .. info.Exp .. " exp)")
+	Remotes.Effect:FireClient(run.Player, { Kind = "Kill", Pos = pos })
+	if info.GoldChance > 0 and math.random() < info.GoldChance then
+		local ground = Vector3.new(pos.X, run.Built.Origin.Y, pos.Z)
+		S.ItemService.DropGold(run, ground, math.random(info.Gold[1], info.Gold[2]) + run.Depth)
+	end
+	S.PlayerStateService.AddExp(run, info.Exp)
 end
 
 function CreatureService.Init(registry)
@@ -163,7 +210,7 @@ function CreatureService.Spawn(run)
 		local kind = KINDS[e.Kind]
 		if kind then
 			local pos = run.Built.Origin + Vector3.new(e.Pos.X, 0, e.Pos.Y)
-			local ok, cr = pcall(kind.Build, folder, pos)
+			local ok, cr = pcall(kind.Build, folder, pos, e.Kind)
 			if ok then
 				cr.Id = i
 				cr.Run = run
@@ -197,6 +244,7 @@ function CreatureService.Tick(run, dt: number)
 					cr.Root.CFrame = CFrame.new(cr.Home + Vector3.new(0, 4, 0))
 				end
 				-- Seeing a Listener in light teaches what it is.
+				-- (Other monsters announce themselves when they spot you.)
 				if cr.Kind == "Listener" and root and (cr.Root.Position - root.Position).Magnitude < 26 and not cr.Known then
 					if S.LightService.SeenByPlayer(run, cr.Root.Position) then
 						cr.Known = true
@@ -217,13 +265,13 @@ function CreatureService.OnNoise(run, noise)
 	end
 end
 
--- Melee from the player. Returns the number of creatures hit.
-function CreatureService.Strike(run, origin: Vector3, look: Vector3, range: number, arcDegrees: number, damage: number): number
-	local hits = 0
+-- Melee from the player. Returns the creatures hit.
+function CreatureService.Strike(run, origin: Vector3, look: Vector3, range: number, arcDegrees: number, damage: number): { any }
+	local hits = {}
 	local cosArc = math.cos(math.rad(arcDegrees / 2))
 	local flatLook = Vector3.new(look.X, 0, look.Z)
 	if flatLook.Magnitude < 0.01 then
-		return 0
+		return hits
 	end
 	flatLook = flatLook.Unit
 	for _, cr in table.clone(run.Creatures) do
@@ -231,20 +279,41 @@ function CreatureService.Strike(run, origin: Vector3, look: Vector3, range: numb
 		local flatTo = Vector3.new(to.X, 0, to.Z)
 		local d = flatTo.Magnitude
 		if d <= range + 1.2 and (d < 1.5 or flatLook:Dot(flatTo.Unit) >= cosArc) then
-			hits += 1
+			table.insert(hits, cr)
 			cr.Behaviour.OnStruck(cr, run, damage, origin, ctx)
 		end
 	end
 	return hits
 end
 
--- Firelight hurts Listeners that stand in it.
+-- Burning oil hurts every living monster standing in it.
 function CreatureService.BurnAt(run, pos: Vector3, radius: number)
 	for _, cr in table.clone(run.Creatures) do
-		if cr.Kind == "Listener" and flatDist(cr.Root.Position, pos) <= radius then
-			cr.Behaviour.OnStruck(cr, run, 1, pos, ctx)
+		if cr.Kind ~= "Watcher" and flatDist(cr.Root.Position, pos) <= radius then
+			cr.Behaviour.OnStruck(cr, run, Config.OilFire.Damage, pos, ctx)
 		end
 	end
+end
+
+-- Damages a single creature from a spell. Returns true if it was hurt.
+function CreatureService.Hurt(run, cr, damage: number, fromPos: Vector3)
+	if cr.Kind == "Watcher" then
+		cr.Behaviour.OnStruck(cr, run, damage, fromPos, ctx)
+		return false
+	end
+	cr.Behaviour.OnStruck(cr, run, damage, fromPos, ctx)
+	return true
+end
+
+function CreatureService.Slow(run, center: Vector3, radius: number, seconds: number): number
+	local n = 0
+	for _, cr in run.Creatures do
+		if flatDist(cr.Root.Position, center) <= radius then
+			cr.SlowUntil = os.clock() + seconds
+			n += 1
+		end
+	end
+	return n
 end
 
 function CreatureService.Lurch(run, seconds: number)

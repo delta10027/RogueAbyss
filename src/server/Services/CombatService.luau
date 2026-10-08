@@ -1,28 +1,29 @@
 --!strict
--- The player's staff strike: short windup, narrow arc, loud. Hits creatures
--- and cracked walls. The server decides every outcome (TECH_ARCHITECTURE §17).
+-- The player's melee attack. Reach, arc, speed, damage and noise all come
+-- from the wielded weapon (Items.luau). Hits creatures and cracked walls.
+-- The server decides every outcome (TECH_ARCHITECTURE §17).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
+local Monsters = require(ReplicatedStorage:WaitForChild("Shared").Definitions.Monsters)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local CombatService = {}
 
 local S: any
-local C = Config.Combat
 
 local lastStrike: { [Player]: number } = {}
 
 local WALL_HITS = 3
 
-local function strikeWalls(run, origin: Vector3, look: Vector3): boolean
+local function strikeWalls(run, origin: Vector3, look: Vector3, range: number): boolean
 	local hitAny = false
 	for _, k in run.Built.Cracked do
 		if not k.Broken then
 			local to = k.Pos - origin
 			local flatTo = Vector3.new(to.X, 0, to.Z)
-			if flatTo.Magnitude <= C.StrikeRange + 2 and (flatTo.Magnitude < 2 or look:Dot(flatTo.Unit) > 0.35) then
+			if flatTo.Magnitude <= range + 2 and (flatTo.Magnitude < 2 or look:Dot(flatTo.Unit) > 0.35) then
 				hitAny = true
 				k.Hits += 1
 				Remotes.Effect:FireClient(run.Player, { Kind = "WallHit", Pos = k.Pos, Hits = k.Hits })
@@ -46,13 +47,14 @@ function CombatService.Strike(run)
 	if not root then
 		return
 	end
+	local w = S.PlayerStateService.WeaponStats(run)
 	local now = os.clock()
-	if now - (lastStrike[run.Player] or 0) < C.StrikeCooldown then
+	if now - (lastStrike[run.Player] or 0) < w.Cooldown then
 		return
 	end
 	lastStrike[run.Player] = now
 	Remotes.Effect:FireClient(run.Player, { Kind = "Swing" })
-	task.delay(C.StrikeWindup, function()
+	task.delay(w.Windup, function()
 		if run.State ~= "Active" or not root.Parent then
 			return
 		end
@@ -61,11 +63,17 @@ function CombatService.Strike(run)
 			return
 		end
 		look = look.Unit
-		local hits = S.CreatureService.Strike(run, root.Position, look, C.StrikeRange, C.StrikeArcDegrees, 1)
-		local wall = strikeWalls(run, root.Position, look)
-		S.NoiseService.Emit(run, root.Position, C.StrikeNoise, "Strike", true)
-		if hits > 0 then
+		local hits = S.CreatureService.Strike(run, root.Position, look, w.Range, w.Arc, w.Damage)
+		local wall = strikeWalls(run, root.Position, look, w.Range)
+		S.NoiseService.Emit(run, root.Position, w.Noise, "Strike", true)
+		if #hits > 0 then
 			Remotes.Effect:FireClient(run.Player, { Kind = "StrikeHit" })
+			for _, cr in hits do
+				if cr.State ~= "Dead" and cr.Kind ~= "Watcher" then
+					local info = Monsters[cr.Kind]
+					S.PlayerStateService.Message(run, string.format("You hit the %s for %d.", if info then info.Name else cr.Kind, w.Damage))
+				end
+			end
 		elseif not wall then
 			Remotes.Effect:FireClient(run.Player, { Kind = "StrikeMiss" })
 		end

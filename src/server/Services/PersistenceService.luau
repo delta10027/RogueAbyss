@@ -23,6 +23,8 @@ export type Data = {
 		BestDepth: number,
 		Curios: number,
 		FloorsCleared: number,
+		Kills: number,
+		BestGold: number,
 	},
 }
 
@@ -36,7 +38,7 @@ local function defaultData(): Data
 	return {
 		SchemaVersion = SCHEMA_VERSION,
 		Discoveries = {},
-		Stats = { Runs = 0, Deaths = 0, BestDepth = 0, Curios = 0, FloorsCleared = 0 },
+		Stats = { Runs = 0, Deaths = 0, BestDepth = 0, Curios = 0, FloorsCleared = 0, Kills = 0, BestGold = 0 },
 	}
 end
 

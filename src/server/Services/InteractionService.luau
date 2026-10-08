@@ -86,7 +86,7 @@ handlers.Unlock = function(run, prompt, ref)
 	end
 	local slot = S.PlayerStateService.FindItem(run, "RustedKey")
 	if not slot then
-		info(run, "Locked. The keyhole is crusted with rust.")
+		info(run, "It's locked. The rusted key for this vault is somewhere on this level.")
 		return
 	end
 	S.PlayerStateService.RemoveSlot(run, slot)
@@ -116,13 +116,14 @@ handlers.Read = function(run, prompt, ref)
 	end
 	local rule = ref and FloorRules[ref]
 	if rule then
-		local known = S.DiscoveryService.Knows(run.Player, "Rule" .. rule.Id)
+		-- The plaque states the level's rule plainly; reading it records it.
 		Remotes.Notice:FireClient(run.Player, {
 			Kind = "Stele",
 			RuleId = rule.Id,
-			Title = if known then rule.Name else nil,
-			Text = if known then rule.Known else rule.Plaque,
+			Title = "Level rule: " .. rule.Name,
+			Text = rule.Known,
 		})
+		S.DiscoveryService.Discover(run.Player, "Rule" .. rule.Id)
 	end
 end
 
@@ -132,14 +133,15 @@ handlers.Drink = function(run, prompt, _ref)
 		return
 	end
 	if shrine.Used then
-		info(run, "The basin is dry.")
+		info(run, "The fountain is dry.")
 		return
 	end
 	shrine.Used = true
 	prompt.Enabled = false
 	shrine.Water.Transparency = 1
-	S.PlayerStateService.Heal(run, 1)
+	S.PlayerStateService.Heal(run, 8)
 	S.PlayerStateService.AddFuel(run, 15)
+	info(run, "You drink from the fountain. You feel better (+8 health, +15 lantern oil).")
 	Remotes.Effect:FireClient(run.Player, { Kind = "Drink" })
 	S.DiscoveryService.Discover(run.Player, "PlaceShrine")
 end
@@ -166,7 +168,7 @@ handlers.Kindle = function(run, prompt, ref)
 		return
 	end
 	if run.PS.Fuel < KINDLE_COST then
-		info(run, "Not enough oil in the lantern to spare a flame.")
+		info(run, "Your lantern doesn't have enough oil to light this.")
 		return
 	end
 	run.PS.Fuel -= KINDLE_COST
@@ -174,6 +176,15 @@ handlers.Kindle = function(run, prompt, ref)
 	S.PlayerStateService.Push(run.Player)
 	prompt.Enabled = false
 	S.ItemService.Kindle(run, b, "Lantern")
+end
+
+handlers.OpenChest = function(run, prompt, ref)
+	local chest = ref and run.Built.Chests[ref]
+	if not chest or chest.Opened then
+		return
+	end
+	prompt.Enabled = false
+	S.ItemService.OpenChest(run, chest)
 end
 
 function InteractionService.Init(registry)
