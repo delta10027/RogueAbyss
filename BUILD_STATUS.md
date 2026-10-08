@@ -872,6 +872,44 @@ loot, plaque reading, death tombstone, pause menu. Generation soak 420 floors, 0
 deterministic. Not yet verified: gamepad and touch bindings, DataStore save of new stats
 (Studio has no API access), balance over a full run.
 
+### Combat, progression and presentation overhaul (2026-10-08, tested in Studio)
+
+Superseded parts of the section above: abilities are replaced by spells + dash, and the
+Play button by character creation.
+
+* Floor-8 fall-through fixed: StreamingEnabled meant deep start rooms had not streamed in
+  when the server teleported the player. RunDirector.SafeTeleport now holds the player
+  anchored (RequestStreamAroundAsync + AwaitGround/ClientReady handshake) until the client
+  sees floor under them. Falling out of the map is no longer fatal (return to last footing, -3 HP).
+* Combat (CombatService): stamina per swing (winded when empty), 3-hit combos with a
+  finisher, hold-to-charge heavy attacks, crits, backstabs, per-weapon quirks and a Q
+  special per weapon. Explosions, breakable pots/crates/barrels, explosive oil barrels.
+* Weapons: 7 melee + 4 magic staffs with detailed part models (Builder/Gear), trails,
+  enchant glow. Armor tiers visibly change the character; enchants add glowing runes; the
+  cloak gains trim at level 4 and turns crimson at 7.
+* Spells (SpellService, Definitions/Spells): 13 spells, mana, slots (2 + levels 4/7/10 +
+  perks), learned from spellbooks, forgettable. Dash on Space for everyone.
+* Progression (ProgressionService, Definitions/Boons): character creation boons/flaws,
+  20 level-up perks chosen 3 at a time (L).
+* Monsters (Creatures/Beast): rat, kobold (throws spears), bat (dives), slime (splits),
+  zombie (slam, exposed), skeleton (shield block), orc (charge, dazed on walls), wraith
+  (only hurt in light). Depth scaling and elites (CreatureService). Status effects.
+* Client: procedural swing/cast animations (Animator), hit flash, damage numbers, enemy
+  health bars, telegraph markers, hit-stop and camera shake (Feedback), colour grading,
+  ambience/music layers, distant sounds, dust motes, torch flicker, low-HP heartbeat
+  (Atmosphere), ornate UI kit, new HUD (health/mana/stamina/exp, spell bar, Q skill, perk
+  prompt), Sanctum menu scene and character-creation cutscene (Sanctum), new panels.
+
+Verified in play: menu over the 3D sanctum, full creation flow (name, flaws, boons, spell),
+run start with chosen boons, light/heavy attacks, Whirlwind special, Firebolt explosion,
+perk choice, plate armor + long sword visible on the character, all 8 new monster kinds
+engage without AI errors at depth 7, safe teleports on levels 8-11 (released in ~0.3s,
+standing on the floor), "Same Again", tombstone. Generation soak 500 floors (depth 1-10),
+0 failures, deterministic.
+Notes: lights created far from the camera need re-enabling once it arrives (Sanctum does
+this); lights parented under the Camera never illuminate, so local visuals live in Workspace.
+Not yet verified: every weapon special/spell visually, gamepad/touch, balance over a run.
+
 
 
 \## Current game name

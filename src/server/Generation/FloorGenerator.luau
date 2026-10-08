@@ -215,6 +215,7 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 		Items = {} :: { any },
 		Chests = {} :: { any },
 		Braziers = {} :: { any },
+		Breakables = {} :: { any },
 		Notes = {} :: { any },
 		Events = {} :: { string },
 		MainPath = {} :: { string },
@@ -602,14 +603,21 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 	end
 
 	-- Ordinary monsters (Beast.luau): packs of rats, kobolds, bats, zombies.
+	-- Groups of each kind; the mix shifts deeper so every few levels brings
+	-- new kinds of trouble.
 	local beastCounts = {
-		Rat = if depth == 1 then 1 else encounters:Int(1, 2),
-		Kobold = if depth == 1 then 1 elseif depth <= 3 then 2 else encounters:Int(2, 3),
-		Bat = if depth < 2 then 0 else encounters:Int(1, 2),
-		Zombie = if depth < 3 then 0 elseif depth < 5 then 1 else 2,
+		Rat = if depth == 1 then 1 elseif depth <= 3 then encounters:Int(1, 2) else 1,
+		Kobold = if depth == 1 then 1 elseif depth <= 4 then 2 else encounters:Int(1, 2),
+		Bat = if depth < 2 then 0 else 1,
+		Slime = if depth < 2 then 0 elseif depth <= 3 then 1 else encounters:Int(1, 2),
+		Zombie = if depth < 3 then 0 elseif depth <= 4 then 1 else encounters:Int(1, 2),
+		Skeleton = if depth < 3 then 0 elseif depth <= 4 then 1 else 2,
+		Orc = if depth < 5 then 0 elseif depth <= 6 then 1 else 2,
+		Wraith = if depth < 6 then 0 elseif depth <= 7 then 1 else 2,
 	}
+	local PACKS = { Rat = { 2, 3 }, Bat = { 1, 2 } }
 	local beastRooms: { [string]: number } = {}
-	for _, kind in { "Zombie", "Kobold", "Bat", "Rat" } do
+	for _, kind in { "Wraith", "Orc", "Skeleton", "Zombie", "Slime", "Kobold", "Bat", "Rat" } do
 		local n = beastCounts[kind]
 		encounters:Shuffle(pool)
 		for _, id in pool do
@@ -619,7 +627,8 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 			local r = floor.Rooms[id]
 			if RoomDefs[r.Archetype].CanHoldCreature and (startDist[id] or 0) >= (if depth == 1 then 1 else 2) and (beastRooms[id] or 0) < 2 then
 				beastRooms[id] = (beastRooms[id] or 0) + 1
-				local packSize = if kind == "Rat" then encounters:Int(2, 3) else 1
+				local pack = if kind == "Rat" and depth == 1 then { 2, 2 } else PACKS[kind]
+				local packSize = if pack then encounters:Int(pack[1], pack[2]) else 1
 				for _ = 1, packSize do
 					local rect = r.Rect
 					table.insert(floor.Encounters, {
@@ -753,6 +762,49 @@ local function generateOnce(runSeed: number, depth: number, attempt: number)
 	for _, it in floor.Items do
 		if it.ItemId == "Curio" then
 			it.Name = itemStream:Pick(CURIOS)
+		end
+	end
+
+	-- Breakables: pots, crates and barrels to smash (some hide things) ------
+	do
+		local bStream = RNG.Stream(runSeed, depth, "breakables" .. salt)
+		local n = 0
+		for _, id in floor.RoomOrder do
+			local r = floor.Rooms[id]
+			local arch = r.Archetype
+			if arch ~= "Stairwell" and arch ~= "Junction" and arch ~= "Shrine" and id ~= secretId then
+				local rect = r.Rect
+				local area = (rect.X1 - rect.X0) * (rect.Z1 - rect.Z0)
+				local count = math.clamp(math.floor(area / 380) + bStream:Int(0, 2), 1, 6)
+				local doors = doorPoints(id)
+				for _ = 1, count do
+					local spot = wallSpot(bStream, rect, 3)
+					local clear = true
+					for _, d in doors do
+						if (d - spot).Magnitude < 9 then
+							clear = false
+						end
+					end
+					if clear then
+						local kinds = { Pot = 4, Crate = 3, Barrel = 2, OilBarrel = if depth >= 2 and id ~= startId then 1.2 else 0 }
+						n += 1
+						table.insert(floor.Breakables, {
+							Id = "b" .. n,
+							RoomId = id,
+							Kind = bStream:Weighted(kinds),
+							Pos = spot,
+							Yaw = bStream:Float(0, math.pi * 2),
+						})
+						-- Pots come in little clusters.
+						if bStream:Chance(0.4) then
+							n += 1
+							local off = Vector2.new(bStream:Float(-2.5, 2.5), bStream:Float(-2.5, 2.5))
+							local p2 = Vector2.new(math.clamp(spot.X + off.X, rect.X0 + 2.5, rect.X1 - 2.5), math.clamp(spot.Y + off.Y, rect.Z0 + 2.5, rect.Z1 - 2.5))
+							table.insert(floor.Breakables, { Id = "b" .. n, RoomId = id, Kind = "Pot", Pos = p2, Yaw = bStream:Float(0, 6.28) })
+						end
+					end
+				end
+			end
 		end
 	end
 

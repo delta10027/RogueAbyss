@@ -96,7 +96,10 @@ end
 function Watcher.OnStruck(cr, run, _damage: number, _fromPos: Vector3, ctx)
 	-- Stone does not break. The blow only rings out.
 	Remotes.Effect:FireClient(run.Player, { Kind = "Clang", Pos = cr.Root.Position })
-	ctx.Message(run, "Your weapon bounces off the Watcher. Stone can't be hurt - keep your light on it instead.")
+	if os.clock() - (cr.LastClangMsg or 0) > 5 then
+		cr.LastClangMsg = os.clock()
+		ctx.Message(run, "Your weapon bounces off the Watcher. Stone can't be hurt - keep your light on it instead.")
+	end
 	ctx.Event(run, "StruckWatcher", "Hit a Watcher. It didn't even notice.")
 end
 
@@ -163,7 +166,7 @@ function Watcher.Tick(cr, run, dt: number, ctx)
 		ctx.Stop(cr)
 		if now - cr.LastStrike >= C.StrikeCooldown then
 			cr.LastStrike = now
-			ctx.DamagePlayer(run, C.Damage, "Watcher", myPos)
+			ctx.DamagePlayer(run, C.Damage * (cr.DamageMult or 1), "Watcher", myPos, cr)
 		end
 	else
 		ctx.MoveTo(cr, root.Position, if lurching then C.MoveSpeed * 0.7 else C.MoveSpeed)

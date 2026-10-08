@@ -213,7 +213,7 @@ function Listener.Tick(cr, run, dt: number, ctx)
 			setState(cr, "Attack")
 			ctx.Stop(cr)
 			pose(cr, 1)
-			Remotes.Effect:FireClient(run.Player, { Kind = "Telegraph", Pos = cr.Root.Position, Creature = "Listener" })
+			Remotes.Effect:FireClient(run.Player, { Kind = "Telegraph", Pos = cr.Root.Position, Creature = "Listener", Radius = C.AttackReach, Time = C.AttackWindup, Shape = "Circle", Model = cr.Model })
 		elseif ctx.MoveTo(cr, cr.Target, C.PursueSpeed) or cr.StateTime > 15 then
 			setState(cr, "Search")
 		end
@@ -229,7 +229,7 @@ function Listener.Tick(cr, run, dt: number, ctx)
 				setState(cr, "Attack")
 				ctx.Stop(cr)
 				pose(cr, 1)
-				Remotes.Effect:FireClient(run.Player, { Kind = "Telegraph", Pos = cr.Root.Position, Creature = "Listener" })
+				Remotes.Effect:FireClient(run.Player, { Kind = "Telegraph", Pos = cr.Root.Position, Creature = "Listener", Radius = C.AttackReach, Time = C.AttackWindup, Shape = "Circle", Model = cr.Model })
 				return
 			end
 		elseif src then
@@ -256,7 +256,7 @@ function Listener.Tick(cr, run, dt: number, ctx)
 				local to = root.Position - cr.Root.Position
 				local flatTo = Vector3.new(to.X, 0, to.Z)
 				if flatTo.Magnitude <= C.AttackReach and not ctx.InSafeRoom(run, root.Position) then
-					ctx.DamagePlayer(run, C.Damage, "Listener", cr.Root.Position)
+					ctx.DamagePlayer(run, C.Damage * (cr.DamageMult or 1), "Listener", cr.Root.Position, cr)
 				end
 			end
 			pose(cr, 0.3)

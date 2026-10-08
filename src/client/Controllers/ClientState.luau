@@ -11,10 +11,13 @@ local ClientState = {
 	CameraYaw = 0,
 	Creeping = false,
 	UIBlocking = false, -- a menu or panel is open; gameplay input is ignored
-	Panel = nil :: string?, -- "Inventory" | "Journal" | "Pause" | "Menu" | "Summary"
+	Panel = nil :: string?, -- "Inventory" | "Journal" | "Pause" | "Menu" | "Summary" | "Perks" | "Create"
 	InRun = false,
+	CameraOverride = false, -- the menu scene owns the camera
 	CooldownEnds = {} :: { [string]: number },
+	LastConfig = nil :: any, -- the last character made (for "play again")
 	Changed = Instance.new("BindableEvent"),
+	VitalsChanged = Instance.new("BindableEvent"),
 }
 
 function ClientState.Set(snapshot)
@@ -24,8 +27,26 @@ function ClientState.Set(snapshot)
 	for id, remaining in snapshot.Cooldowns or {} do
 		ends[id] = now + remaining
 	end
+	-- Keep locally predicted cooldowns that the server hasn't confirmed yet.
+	for id, t in ClientState.CooldownEnds do
+		if not ends[id] and t > now and t - now < 1.5 then
+			ends[id] = t
+		end
+	end
 	ClientState.CooldownEnds = ends
 	ClientState.Changed:Fire()
+end
+
+-- Frequent small updates for the bars.
+function ClientState.SetVitals(v)
+	local snap = ClientState.Snapshot
+	if not snap then
+		return
+	end
+	for k, val in v do
+		snap[k] = val
+	end
+	ClientState.VitalsChanged:Fire()
 end
 
 function ClientState.SetPanel(panel: string?)

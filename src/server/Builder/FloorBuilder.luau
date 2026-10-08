@@ -67,6 +67,7 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 		Braziers = {} :: { [string]: any },
 		Items = {} :: { [number]: any },
 		Chests = {} :: { [string]: any },
+		Breakables = {} :: { any },
 		Water = {} :: { any },
 		RoomRects = {} :: { [string]: { Min: Vector3, Max: Vector3 } },
 		Descent = nil :: any,
@@ -205,6 +206,94 @@ function FloorBuilder.Build(floor, origin: Vector3, parent: Instance)
 			else Items.EntryName({ Id = it.ItemId, Count = count, Bonus = bonus })
 		local prompt = Fixtures.Prompt(model.PrimaryPart :: BasePart, "Take", label, tostring(idx), 7)
 		built.Items[idx] = { ItemId = it.ItemId, Name = it.Name, Count = count, Bonus = bonus, Model = model, Prompt = prompt, Pos = pos, Taken = false }
+	end
+
+	-- Breakable props.
+	local breakFolder = Kit.Folder(folder, "Breakables")
+	for _, b in floor.Breakables or {} do
+		local handle = Fixtures.Breakable(breakFolder, W(b.Pos.X, b.Pos.Y), b.Kind, b.Yaw, b.Id)
+		table.insert(built.Breakables, handle)
+	end
+
+	-- Atmosphere: wall torches, bones, cobwebs and chains, deterministic per room.
+	local decor = Kit.Folder(folder, "Decor")
+	for _, id in floor.RoomOrder do
+		local room = floor.Rooms[id]
+		local r = room.Rect
+		local rng = Random.new(floor.Seed + floor.Depth * 131 + #id * 7 + math.floor(r.X0 * 3 + r.Z0))
+		local arch = room.Archetype
+		local wallY = Config.Grid.WallHeight * 0.62
+		-- Torches on the north and south walls of larger rooms (not on Hungry Dark floors).
+		if floor.RuleId ~= "HungryDark" and arch ~= "Junction" and arch ~= "Secret" and rng:NextNumber() < 0.45 then
+			local cx = (r.X0 + r.X1) / 2
+			for _, side in { { r.Z0 + 0.3, 1 }, { r.Z1 - 0.3, -1 } } do
+				local x = cx + rng:NextNumber(-4, 4)
+				local clear = true
+				for _, dp in built.DoorPositions do
+					if dp.Room == id and (Vector2.new(dp.Inside.X, dp.Inside.Z) - Vector2.new(origin.X + x, origin.Z + side[1])).Magnitude < 7 then
+						clear = false
+					end
+				end
+				if clear then
+					Fixtures.WallTorch(decor, W(x, side[1], wallY), Vector3.new(0, 0, side[2]))
+				end
+			end
+		end
+		if arch ~= "Junction" then
+			-- Cobwebs in two corners.
+			for _, c in { { r.X0, r.Z0, 1, 1 }, { r.X1, r.Z1, -1, -1 } } do
+				if rng:NextNumber() < 0.6 then
+					local web = Kit.Deco(decor, {
+						Name = "Cobweb",
+						Size = Vector3.new(0.05, 3.2, 3.2),
+						CFrame = CFrame.new(W(c[1] + c[3] * 1.1, c[2] + c[4] * 1.1, Config.Grid.WallHeight - 1.6)) * CFrame.Angles(0, math.rad(if c[3] > 0 then 45 else 225), math.rad(-35)),
+						Color = Color3.fromRGB(200, 196, 186),
+						Material = Enum.Material.Fabric,
+						CastShadow = false,
+					})
+					web.Transparency = 0.72
+				end
+			end
+			-- Bones and a skull or two.
+			for _ = 1, rng:NextInteger(0, 3) do
+				local bx = rng:NextNumber(r.X0 + 3, r.X1 - 3)
+				local bz = rng:NextNumber(r.Z0 + 3, r.Z1 - 3)
+				local bone = Kit.Deco(decor, {
+					Name = "Bone",
+					Size = Vector3.new(0.25, 0.25, rng:NextNumber(1, 1.8)),
+					CFrame = CFrame.new(W(bx, bz, 0.15)) * CFrame.Angles(0, rng:NextNumber(0, 6.28), 0),
+					Color = P.Bone,
+					Material = Enum.Material.SmoothPlastic,
+					CastShadow = false,
+				})
+				bone.Name = "Bone"
+				if rng:NextNumber() < 0.4 then
+					Kit.Deco(decor, {
+						Name = "Skull",
+						Shape = Enum.PartType.Ball,
+						Size = Vector3.new(0.75, 0.75, 0.75),
+						CFrame = CFrame.new(W(bx + 0.7, bz + 0.4, 0.37)),
+						Color = P.Bone,
+						Material = Enum.Material.SmoothPlastic,
+					})
+				end
+			end
+			-- A hanging chain.
+			if rng:NextNumber() < 0.3 then
+				local hx = rng:NextNumber(r.X0 + 4, r.X1 - 4)
+				local hz = rng:NextNumber(r.Z0 + 4, r.Z1 - 4)
+				for i = 0, 4 do
+					Kit.Deco(decor, {
+						Name = "Chain",
+						Size = Vector3.new(0.18, 0.6, 0.35),
+						CFrame = CFrame.new(W(hx, hz, Config.Grid.WallHeight - 0.4 - i * 0.55)) * CFrame.Angles(0, if i % 2 == 0 then 0 else math.rad(90), 0),
+						Color = P.OldIron,
+						Material = Enum.Material.Metal,
+						CastShadow = false,
+					})
+				end
+			end
+		end
 	end
 
 	-- Chests: contents are rolled by ItemService when opened.

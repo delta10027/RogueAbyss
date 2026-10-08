@@ -112,7 +112,7 @@ function DebugService.Hook(cmd: string, ...): string
 		return "used"
 	elseif cmd == "cast" then
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		S.AbilityService.Use(run, args[1], root and (root.Position + root.CFrame.LookVector * 15))
+		S.SpellService.Cast(run, tonumber(args[1]) or 1, root and (root.Position + root.CFrame.LookVector * 15))
 		return "cast"
 	elseif cmd == "goto" then
 		-- Stand the player a few studs in front of the first creature of a kind.

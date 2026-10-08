@@ -1,5 +1,6 @@
 --!strict
--- Full-screen panels: main menu, pause menu, inventory, journal, records,
+-- Full-screen panels: main menu (over the Sanctum scene), character
+-- creation, pause menu, inventory, perk choice, journal, records,
 -- how-to-play and the death screen (a Rogue-style tombstone).
 -- Only one panel is open at a time (ClientState.Panel); while any panel is
 -- open, gameplay input is ignored.
@@ -11,12 +12,14 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Items = require(Shared.Definitions.Items)
-local Abilities = require(Shared.Definitions.Abilities)
+local Spells = require(Shared.Definitions.Spells)
+local Boons = require(Shared.Definitions.Boons)
 local Discoveries = require(Shared.Definitions.Discoveries)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local ClientState = require(script.Parent.ClientState)
 local UiKit = require(script.Parent.UiKit)
+local Audio = require(script.Parent.Audio)
 
 local C = UiKit.Colors
 
@@ -24,7 +27,7 @@ local Panels = {}
 
 local deps: any
 local gui: ScreenGui
-local layer: Frame -- holds whichever panel is open
+local layer: Frame
 local current: Frame? = nil
 local selectedPackSlot = 1
 
@@ -48,23 +51,20 @@ local function panelFrame(width: number, height: number, opaque: boolean?): Fram
 		Name = "Backdrop",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Color3.new(0, 0, 0),
-		BackgroundTransparency = if opaque then 0 else 0.45,
+		BackgroundTransparency = if opaque then 0.35 else 0.4,
 		ZIndex = 30,
 	})
-	local f = UiKit.Frame(back, {
+	local f = UiKit.Ornate(back, {
 		Name = "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0, width, 0, height),
-		BackgroundColor3 = C.Panel,
-		BackgroundTransparency = 0.03,
+		Size = UDim2.new(0.94, 0, 0.92, 0),
 		ZIndex = 31,
 	})
 	local limit = Instance.new("UISizeConstraint")
 	limit.MaxSize = Vector2.new(width, height)
 	limit.Parent = f
 	f.Size = UDim2.new(0.94, 0, 0.92, 0)
-	UiKit.Stroke(f, C.Line, 1)
 	current = back
 	return f
 end
@@ -72,10 +72,10 @@ end
 local function title(parent: Instance, text: string, y: number?)
 	return UiKit.Text(parent, {
 		Position = UDim2.fromOffset(0, y or 14),
-		Size = UDim2.new(1, 0, 0, 36),
+		Size = UDim2.new(1, 0, 0, 40),
 		FontFace = UiKit.Display,
-		TextSize = 32,
-		TextColor3 = C.Parchment,
+		TextSize = 36,
+		TextColor3 = C.Gold,
 		Text = text,
 		ZIndex = 32,
 	})
@@ -84,7 +84,10 @@ end
 local function button(parent: Instance, text: string, props: { [string]: any }, onClick: () -> ()): TextButton
 	props.ZIndex = props.ZIndex or 33
 	local b = UiKit.Button(parent, text, props)
-	b.Activated:Connect(onClick)
+	b.Activated:Connect(function()
+		Audio.Play("Clank", nil, 0.15, 1.8, 0.4)
+		onClick()
+	end)
 	return b
 end
 
@@ -132,58 +135,67 @@ end
 function Panels.ShowMainMenu()
 	ClientState.InRun = false
 	ClientState.SetPanel("Menu")
+	deps.Sanctum.ShowMenu()
+	deps.Atmosphere.SetMode("Menu")
 	clear()
-	local back = UiKit.Frame(layer, {
-		Name = "MainMenu",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(8, 7, 7),
-		ZIndex = 30,
-	})
+	local back = UiKit.Frame(layer, { Name = "MainMenu", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 30 })
 	current = back
-	-- A faint lantern glow behind the title.
-	local glow = Instance.new("UIGradient")
-	glow.Color = ColorSequence.new(Color3.fromRGB(40, 28, 18), Color3.fromRGB(8, 7, 7))
-	glow.Rotation = 90
-	glow.Parent = back
+	-- Shade the left side so the menu reads over the scene.
+	local shade = UiKit.Frame(back, { BackgroundColor3 = Color3.new(0, 0, 0), Size = UDim2.fromScale(1, 1), ZIndex = 30 })
+	local g = Instance.new("UIGradient")
+	g.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(0.45, 0.5), NumberSequenceKeypoint.new(0.75, 1), NumberSequenceKeypoint.new(1, 1) })
+	g.Parent = shade
 
 	local col = UiKit.Frame(back, {
 		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(460, 520),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 70, 0.5, 0),
+		Size = UDim2.fromOffset(440, 560),
 		ZIndex = 31,
 	})
 	local t = UiKit.Text(col, {
-		Size = UDim2.new(1, 0, 0, 70),
+		Size = UDim2.new(1, 0, 0, 80),
 		FontFace = UiKit.Display,
-		TextSize = 64,
-		TextColor3 = C.Parchment,
+		TextSize = 70,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "ROGUE ABYSS",
 		TextTransparency = 1,
 		ZIndex = 32,
 	})
-	TweenService:Create(t, TweenInfo.new(1.4), { TextTransparency = 0 }):Play()
+	local tg = Instance.new("UIGradient")
+	tg.Color = ColorSequence.new(Color3.fromRGB(255, 226, 160), Color3.fromRGB(176, 120, 60))
+	tg.Rotation = 90
+	tg.Parent = t
+	TweenService:Create(t, TweenInfo.new(1.6), { TextTransparency = 0 }):Play()
+	local rule = UiKit.Frame(col, { Position = UDim2.fromOffset(2, 82), Size = UDim2.fromOffset(300, 2), BackgroundColor3 = C.Line, ZIndex = 32 })
+	UiKit.Studs(rule, 7)
 	UiKit.Text(col, {
-		Position = UDim2.fromOffset(0, 72),
+		Position = UDim2.fromOffset(0, 92),
 		Size = UDim2.new(1, 0, 0, 22),
-		TextSize = 17,
+		TextSize = 18,
 		TextColor3 = C.Dim,
-		Text = "Go as deep as you can. Collect gold. Don't die.",
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = "Go as deep as you can. Grow stronger. Don't die.",
 		ZIndex = 32,
 	})
 
-	local y = 140
+	local y = 150
 	local function menuButton(text: string, onClick: () -> ())
-		button(col, text, {
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.new(0.5, 0, 0, y),
-			Size = UDim2.fromOffset(260, 48),
-			TextSize = 26,
+		local b = button(col, text, {
+			Position = UDim2.fromOffset(0, y),
+			Size = UDim2.fromOffset(280, 50),
+			TextSize = 27,
+			TextXAlignment = Enum.TextXAlignment.Left,
 		}, onClick)
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 20)
+		pad.Parent = b
 		y += 60
+		return b
 	end
-	menuButton("Play", function()
-		Panels.StartRun()
+	menuButton("New Character", function()
+		Panels.ShowCreation()
 	end)
 	menuButton("How to Play", function()
 		Panels.ShowHowTo("Menu")
@@ -196,10 +208,11 @@ function Panels.ShowMainMenu()
 	end)
 
 	local best = UiKit.Text(col, {
-		Position = UDim2.fromOffset(0, y + 20),
-		Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.fromOffset(0, y + 16),
+		Size = UDim2.new(1, 0, 0, 40),
 		TextSize = 16,
 		TextColor3 = C.Dim,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "",
 		ZIndex = 32,
 	})
@@ -208,22 +221,44 @@ function Panels.ShowMainMenu()
 		if profile and best.Parent then
 			local s = profile.Stats
 			best.Text = if s.Runs > 0
-				then string.format("Deepest level: %d   ·   Most gold: %d   ·   Runs: %d", s.BestDepth, s.BestGold or 0, s.Runs)
-				else "First time here? Read How to Play, or just press Play."
+				then string.format("Deepest level: %d    Most gold: %d    Runs: %d", s.BestDepth, s.BestGold or 0, s.Runs)
+				else "First time here? Read How to Play, or just make a character."
 		end
 	end)
-	deps.Hud.FadeTo(0, 0.6)
+	deps.Hud.FadeTo(0, 1)
 end
 
-function Panels.StartRun()
+-- Character creation, then the run starts with the chosen character.
+function Panels.ShowCreation()
+	clear()
+	ClientState.InRun = false
+	ClientState.SetPanel("Create")
+	deps.Atmosphere.SetMode("Menu")
+	local holder = UiKit.Frame(layer, { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 30 })
+	current = holder
+	deps.Hud.FadeTo(1, 0)
+	deps.Hud.FadeTo(0, 1.4)
+	deps.Sanctum.Create(holder, ClientState.LastConfig, function(config)
+		ClientState.LastConfig = config
+		Panels.StartRun(config)
+	end, function()
+		Panels.ShowMainMenu()
+	end)
+end
+
+function Panels.StartRun(config: any)
 	clear()
 	ClientState.SetPanel(nil)
-	deps.Hud.FadeTo(1, 0.15)
-	Remotes.RequestRestart:FireServer()
+	deps.Hud.FadeTo(1, 0.6)
+	task.delay(0.6, function()
+		deps.Sanctum.Hide()
+		deps.Atmosphere.SetMode("Dungeon")
+		Remotes.RequestRestart:FireServer(config)
+	end)
 end
 
 function Panels.ShowRecords()
-	local f = panelFrame(460, 420, true)
+	local f = panelFrame(480, 440, true)
 	title(f, "Records")
 	local list = scrolling(f, UDim2.fromOffset(30, 70), UDim2.new(1, -60, 1, -140))
 	line(list, "Loading...", 18, C.Dim, 1)
@@ -262,24 +297,24 @@ end
 ---------------------------------------------------------------------------
 
 local HOW_TO = {
-	{ "The goal", "Find the stairs down on each level and go as deep as you can. Your score is the gold you carry and the deepest level you reach. When you die, the run is over - every run is a new dungeon." },
-	{ "Your lantern", "Your lantern lights the way and slowly burns oil. Press F to dim it (uses less oil and helps you stay hidden). Press R to refill it with an oil flask." },
-	{ "Fighting", "Left click to attack with your weapon. Each weapon has a different damage, reach and speed. Monsters raise their arms or weapon before they hit - step back, then strike." },
-	{ "Sneaking", "Hold Shift to sneak. Sneaking is slow but your footsteps make no sound, and monsters have a harder time seeing you." },
-	{ "Items", "Pick things up with E. Your pack holds 12 items; the first 4 are on your hotbar (keys 1-4, right click to use). Open your inventory with I to equip weapons and armor, drink potions, read scrolls or drop things." },
-	{ "Chests and gold", "Open chests for gold and gear. The ornate chest inside an iron vault holds the best loot - its rusted key is somewhere on the same level." },
-	{ "Experience", "Defeating monsters and going downstairs gives experience. Each new experience level gives more max health, and unlocks Dash (level 2) and spells (levels 3-6)." },
-	{ "Level rules", "Every dungeon level has one special rule, written on the plaque in the first room. Read it - knowing the rule is often the difference between life and death." },
-	{ "The journal", "Everything you learn about monsters, rules and places is written in your journal (J) and kept between runs." },
+	{ "The goal", "Find the stairs down on each level and go as deep as you can. Your score is the gold you carry and the deepest level you reach. When you die the run is over - every run is a new character and a new dungeon." },
+	{ "Fighting", "Click to attack. Swings cost stamina, so mashing leaves you winded and helpless - pace yourself. Quick clicks chain into a 3-hit combo whose last hit is a strong finisher. Hold the button to charge a heavy attack that breaks shields and stuns. Monsters flash and show a warning on the floor before they strike: dash away (Space) or step back, then punish them." },
+	{ "Weapons", "Every weapon swings differently and has its own trick (dagger backstabs, mace stuns, spear pierces...) and its own skill on Q. Magic staffs are weak in melee but have a built-in spell and boost your magic." },
+	{ "Spells", "Spells cost mana and live in spell slots (Z X C V B). Read spellbooks to learn new ones. You get more slots as you level up; forget a spell in your inventory to make room." },
+	{ "Growing stronger", "Defeating monsters and going downstairs gives experience. Each level gives more health and mana and lets you choose a perk (press L). Better gear, enchant scrolls and potions of strength make you stronger still - and it shows on your character." },
+	{ "Your lantern", "Your lantern lights the way and burns oil. Monsters see you at the edge of its light: dim it (F) to sneak past, refill it with an oil flask (R)." },
+	{ "Sneaking", "Hold Shift to sneak. Your footsteps are silent and monsters have a harder time spotting you. Hitting an unaware monster from behind is a backstab." },
+	{ "Loot", "Pick things up with E. Open chests, smash pots and crates, and watch out for red oil barrels - they explode. The ornate chest in an iron vault holds the best loot; its rusted key is on the same level." },
+	{ "Level rules", "Every dungeon level has one special rule, written on the plaque in the first room. Read it." },
 }
 
 function Panels.ShowHowTo(returnTo: string?)
-	local f = panelFrame(620, 640, returnTo == "Menu")
+	local f = panelFrame(660, 660, returnTo == "Menu")
 	ClientState.SetPanel(if returnTo == "Menu" then "Menu" else "HowTo")
 	title(f, "How to Play")
 	local list = scrolling(f, UDim2.fromOffset(30, 64), UDim2.new(1, -60, 1, -130))
 	for i, h in HOW_TO do
-		line(list, h[1], 22, C.Parchment, i * 2 - 1, true)
+		line(list, h[1], 23, C.Gold, i * 2 - 1, true)
 		line(list, h[2], 17, C.Text, i * 2)
 	end
 	button(f, "Back", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.fromOffset(180, 40) }, function()
@@ -301,7 +336,7 @@ function Panels.ShowPause()
 	if not ClientState.InRun then
 		return
 	end
-	local f = panelFrame(340, 350)
+	local f = panelFrame(340, 400)
 	ClientState.SetPanel("Pause")
 	title(f, "Paused")
 	local y = 70
@@ -312,6 +347,9 @@ function Panels.ShowPause()
 	b("Resume", close)
 	b("Inventory", function()
 		Panels.ShowInventory()
+	end)
+	b("Perks", function()
+		Panels.ShowPerks()
 	end)
 	b("Journal", function()
 		Panels.ShowJournal("Pause")
@@ -325,11 +363,11 @@ function Panels.ShowPause()
 end
 
 function Panels.ConfirmQuit()
-	local f = panelFrame(380, 200)
+	local f = panelFrame(400, 210)
 	ClientState.SetPanel("Pause")
 	title(f, "Quit this run?")
 	UiKit.Text(f, {
-		Position = UDim2.fromOffset(20, 56),
+		Position = UDim2.fromOffset(20, 60),
 		Size = UDim2.new(1, -40, 0, 50),
 		TextSize = 17,
 		Text = "Your current run will end. Journal entries you've earned are kept.",
@@ -346,13 +384,96 @@ end
 
 function Panels.TogglePause()
 	local p = ClientState.Panel
-	if p == "Menu" or p == "Summary" then
+	if p == "Menu" or p == "Summary" or p == "Create" then
 		return
 	end
 	if p then
 		close()
 	else
 		Panels.ShowPause()
+	end
+end
+
+---------------------------------------------------------------------------
+-- Perks (level-up choice)
+---------------------------------------------------------------------------
+
+function Panels.ShowPerks()
+	local snap = ClientState.Snapshot
+	if not ClientState.InRun or not snap then
+		return
+	end
+	local f = panelFrame(860, 520)
+	ClientState.SetPanel("Perks")
+	local pending = snap.PendingPerks or 0
+	title(f, if pending > 0 then "Choose a Perk" else "Your Perks")
+	UiKit.Text(f, {
+		Position = UDim2.fromOffset(0, 54),
+		Size = UDim2.new(1, 0, 0, 22),
+		TextSize = 16,
+		TextColor3 = C.Dim,
+		Text = if pending > 0 then string.format("You have %d perk%s to choose. Pick one of these three.", pending, if pending == 1 then "" else "s") else "You gain a perk each time you level up.",
+		ZIndex = 32,
+	})
+	if pending > 0 and snap.PerkOffer then
+		local row = UiKit.Frame(f, { BackgroundTransparency = 1, Position = UDim2.fromOffset(30, 92), Size = UDim2.new(1, -60, 0, 220), ZIndex = 32 })
+		local grid = Instance.new("UIGridLayout")
+		grid.CellSize = UDim2.new(1 / 3, -14, 1, 0)
+		grid.CellPadding = UDim2.fromOffset(20, 0)
+		grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		grid.Parent = row
+		for _, id in snap.PerkOffer do
+			local p = Boons.PerkById[id]
+			if p then
+				local card = Instance.new("TextButton")
+				card.Text = ""
+				card.AutoButtonColor = false
+				card.BackgroundColor3 = Color3.new(1, 1, 1)
+				card.ZIndex = 33
+				card.Parent = row
+				local grad = UiKit.Gradient(card, Color3.fromRGB(50, 38, 28), Color3.fromRGB(14, 11, 10), 90)
+				local stroke = UiKit.Stroke(card, C.Line, 1.5)
+				UiKit.Studs(card, 8)
+				local have = (snap.Perks and snap.Perks[id]) or 0
+				UiKit.Text(card, { Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -24, 0, 34), FontFace = UiKit.Display, TextSize = 28, TextColor3 = C.Gold, Text = p.Name, ZIndex = 34 })
+				UiKit.Text(card, { Position = UDim2.fromOffset(16, 72), Size = UDim2.new(1, -32, 0, 90), TextSize = 18, Text = p.Description, ZIndex = 34 })
+				UiKit.Text(card, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -12), Size = UDim2.new(1, 0, 0, 18), TextSize = 14, TextColor3 = C.Dim, Text = if have > 0 then string.format("You have %d of %d", have, p.MaxStacks or 1) else "", ZIndex = 34 })
+				card.MouseEnter:Connect(function()
+					stroke.Color = C.Gold
+					grad.Color = ColorSequence.new(Color3.fromRGB(90, 66, 40), Color3.fromRGB(20, 15, 12))
+				end)
+				card.MouseLeave:Connect(function()
+					stroke.Color = C.Line
+					grad.Color = ColorSequence.new(Color3.fromRGB(50, 38, 28), Color3.fromRGB(14, 11, 10))
+				end)
+				card.Activated:Connect(function()
+					Remotes.RequestPerk:FireServer(id)
+					Audio.Play("Shimmer", nil, 0.4, 1, 2.5)
+					close()
+				end)
+			end
+		end
+	end
+	local list = scrolling(f, UDim2.fromOffset(30, if pending > 0 then 330 else 92), UDim2.new(1, -60, 1, if pending > 0 then -390 else -150))
+	local o = 0
+	for id, n in snap.Perks or {} do
+		local p = Boons.PerkById[id]
+		if p then
+			o += 1
+			line(list, string.format("%s%s - %s", p.Name, if n > 1 then (" x" .. n) else "", p.Description), 16, C.Text, o)
+		end
+	end
+	if o == 0 then
+		line(list, "No perks yet.", 16, C.Dim, 1)
+	end
+	button(f, "Close", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(160, 38) }, close)
+end
+
+function Panels.TogglePerks()
+	if ClientState.Panel == "Perks" then
+		close()
+	elseif ClientState.Panel == nil or ClientState.Panel == "Pause" then
+		Panels.ShowPerks()
 	end
 end
 
@@ -366,7 +487,7 @@ local function weaponLine(e): string
 	if not w then
 		return ""
 	end
-	return string.format("Damage %d · Reach %d · %.1f swings/sec", w.Damage + (e.Bonus or 0), w.Range, 1 / w.Cooldown)
+	return string.format("Damage %d · Reach %d · %.1f swings/s · %d stamina", w.Damage + (e.Bonus or 0), w.Range, 1 / w.Cooldown, w.Stamina)
 end
 
 local function useVerb(def): string
@@ -375,7 +496,7 @@ local function useVerb(def): string
 	elseif def.Use == "Drink" then
 		return "Drink"
 	elseif def.Use == "Read" then
-		return "Read"
+		return if def.Category == "Book" then "Learn" else "Read"
 	elseif def.Use == "Eat" then
 		return "Eat"
 	elseif def.Use == "Throw" then
@@ -392,12 +513,12 @@ function Panels.ShowInventory()
 	if not snap then
 		return
 	end
-	local f = panelFrame(820, 600)
+	local f = panelFrame(900, 620)
 	ClientState.SetPanel("Inventory")
 	title(f, "Inventory")
 	UiKit.Text(f, {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -16, 0, 22),
+		Position = UDim2.new(1, -20, 0, 24),
 		Size = UDim2.fromOffset(220, 20),
 		TextSize = 15,
 		TextColor3 = C.Dim,
@@ -406,43 +527,41 @@ function Panels.ShowInventory()
 		ZIndex = 32,
 	})
 
-	-- Left: the pack, lettered like Rogue.
-	local left = UiKit.Frame(f, {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(20, 64),
-		Size = UDim2.new(0.5, -30, 1, -84),
-		ZIndex = 32,
-	})
+	local left = UiKit.Frame(f, { BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 64), Size = UDim2.new(0.46, -26, 1, -84), ZIndex = 32 })
 	UiKit.Text(left, {
 		Size = UDim2.new(1, 0, 0, 22),
 		FontFace = UiKit.BodyBold,
-		TextSize = 18,
+		TextSize = 17,
 		TextColor3 = C.Parchment,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = string.format("Pack (%d slots - the first %d are your hotbar)", Config.Player.PackSlots, Config.Player.HotbarSlots),
+		Text = string.format("Pack (%d slots, the first %d are your hotbar)", Config.Player.PackSlots, Config.Player.HotbarSlots),
 		ZIndex = 32,
 	})
 	local rows = UiKit.Frame(left, { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 1, -28), ZIndex = 32 })
 	UiKit.List(rows, 3)
 	for i = 1, Config.Player.PackSlots do
 		local e = snap.Pack[i]
+		local def = if e then Items[e.Id] else nil
 		local b = Instance.new("TextButton")
 		b.AutoButtonColor = true
-		b.BackgroundColor3 = if i == selectedPackSlot then Color3.fromRGB(48, 40, 32) else C.Ink
-		b.BackgroundTransparency = if i <= Config.Player.HotbarSlots then 0.1 else 0.4
+		b.BackgroundColor3 = if i == selectedPackSlot then Color3.fromRGB(60, 46, 32) else C.Ink
+		b.BackgroundTransparency = if i <= Config.Player.HotbarSlots then 0.1 else 0.35
 		b.BorderSizePixel = 0
-		b.Size = UDim2.new(1, 0, 0, 30)
+		b.Size = UDim2.new(1, 0, 0, 32)
 		b.LayoutOrder = i
 		b.FontFace = UiKit.Body
 		b.TextSize = 17
 		b.TextXAlignment = Enum.TextXAlignment.Left
 		b.TextColor3 = if e then C.Text else C.LineDim
 		local hot = if i <= Config.Player.HotbarSlots then ("     - hotbar " .. i) else ""
-		b.Text = "  " .. string.sub(LETTERS, i, i) .. ")  " .. (if e then Items.EntryName(e) else "(empty)") .. hot
+		b.Text = "        " .. string.sub(LETTERS, i, i) .. ")  " .. (if e then Items.EntryName(e) else "(empty)") .. hot
 		b.ZIndex = 33
 		b.Parent = rows
+		if def then
+			UiKit.Frame(b, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), Size = UDim2.fromOffset(10, 10), Rotation = 45, BackgroundColor3 = def.Color, ZIndex = 34 })
+		end
 		if i == selectedPackSlot then
-			UiKit.Stroke(b, C.Parchment, 1)
+			UiKit.Stroke(b, C.Gold, 1)
 		end
 		b.Activated:Connect(function()
 			selectedPackSlot = i
@@ -450,17 +569,22 @@ function Panels.ShowInventory()
 		end)
 	end
 
-	-- Right: equipment, stats, the selected item and abilities.
-	local right = scrolling(f, UDim2.new(0.5, 10, 0, 64), UDim2.new(0.5, -30, 1, -84))
+	local right = scrolling(f, UDim2.new(0.46, 6, 0, 64), UDim2.new(0.54, -28, 1, -84))
 	local o = 0
 	local function add(text: string, size: number, color: Color3, display: boolean?)
 		o += 1
 		return line(right, text, size, color, o, display)
 	end
-	add("Equipped", 22, C.Parchment, true)
+	add("Equipped", 23, C.Gold, true)
+	local wdef = Items[snap.Weapon.Id]
 	add("Weapon: " .. Items.EntryName(snap.Weapon) .. "   (" .. weaponLine(snap.Weapon) .. ")", 16, C.Text)
+	if wdef and wdef.Quirk then
+		add("   Quirk: " .. wdef.Quirk, 14, C.Dim)
+	end
+	if wdef and wdef.Special then
+		add(string.format("   Skill [Q] %s: %s", wdef.Special.Name, wdef.Special.Description), 14, C.Dim)
+	end
 	add("Armor: " .. (if snap.ArmorItem then Items.EntryName(snap.ArmorItem) else "none") .. "   (armor " .. snap.Armor .. ")", 16, C.Text)
-	add(string.format("Health %d/%d   Str %d   Damage %d   Gold %d", snap.HP, snap.MaxHP, snap.Str, snap.Damage, snap.Gold), 16, C.Dim)
 
 	o += 1
 	local selBox = UiKit.Frame(right, {
@@ -475,14 +599,25 @@ function Panels.ShowInventory()
 	UiKit.Pad(selBox, 10)
 	UiKit.List(selBox, 6)
 	local sel = snap.Pack[selectedPackSlot]
-	local def = sel and Items[sel.Id]
+	local def = if sel then Items[sel.Id] else nil
 	if sel and def then
 		line(selBox, Items.EntryName(sel), 22, C.Parchment, 1, true)
-		line(selBox, def.Description, 16, C.Text, 2)
+		local desc = def.Description
+		if def.Category == "Book" and sel.Spell and Spells.ById[sel.Spell] then
+			local s = Spells.ById[sel.Spell]
+			desc = string.format("%s (%d mana, %ds cooldown)\n%s", s.Name, s.Mana, s.Cooldown, s.Description)
+		end
+		line(selBox, desc, 16, C.Text, 2)
 		if def.Weapon then
-			line(selBox, weaponLine(sel) .. "\nYou have: " .. weaponLine(snap.Weapon), 15, C.Dim, 3)
+			line(selBox, weaponLine(sel) .. "\nYou have: " .. weaponLine(snap.Weapon), 14, C.Dim, 3)
+			if def.Quirk then
+				line(selBox, "Quirk: " .. def.Quirk, 14, C.Dim, 3)
+			end
+			if def.Special then
+				line(selBox, "Skill [Q] " .. def.Special.Name .. ": " .. def.Special.Description, 14, C.Dim, 3)
+			end
 		elseif def.Armor then
-			line(selBox, string.format("Armor %d  (you have %d)", def.Armor + (sel.Bonus or 0), snap.Armor), 15, C.Dim, 3)
+			line(selBox, string.format("Armor %d  (you have %d)", def.Armor + (sel.Bonus or 0), snap.Armor), 14, C.Dim, 3)
 		end
 		local actions = UiKit.Frame(selBox, { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 4, ZIndex = 32 })
 		UiKit.List(actions, 6, true)
@@ -496,16 +631,13 @@ function Panels.ShowInventory()
 				if def.Use == "Equip" then
 					Remotes.RequestInventory:FireServer("Equip", slot)
 				elseif def.Use == "Throw" then
-					-- Throwing needs aim: put it in the hand and close the panel.
 					if slot > Config.Player.HotbarSlots then
 						Remotes.RequestInventory:FireServer("Swap", slot, ClientState.SelectedSlot)
-						slot = ClientState.SelectedSlot
 					else
 						deps.Input.SelectSlot(slot)
 					end
 					close()
 					deps.Hud.Message("Right click to throw it where you aim.")
-					return
 				else
 					Remotes.RequestUseItem:FireServer(slot, ClientState.AimPoint)
 				end
@@ -531,11 +663,27 @@ function Panels.ShowInventory()
 	end
 
 	add(" ", 6, C.Dim)
-	add("Abilities & spells", 22, C.Parchment, true)
-	for _, a in Abilities.List do
-		local unlocked = snap.Level >= a.Level
-		add(string.format("%s  [%s]  %s", a.Name, a.Key, if unlocked then "" else ("- unlocks at level " .. a.Level)), 17, if unlocked then C.Text else C.LineDim)
-		add(a.Description .. string.format("  (cooldown %ds)", a.Cooldown), 14, if unlocked then C.Dim else C.LineDim)
+	add(string.format("Spells  (%d of %d slots)", #(snap.Spells or {}), snap.SpellSlots or 0), 23, C.Gold, true)
+	for i, id in snap.Spells or {} do
+		local s = Spells.ById[id]
+		if s then
+			o += 1
+			local rowF = UiKit.Frame(right, { BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 44), LayoutOrder = o, ZIndex = 32 })
+			local icon = UiKit.Frame(rowF, { BackgroundTransparency = 1, Size = UDim2.fromOffset(30, 30), Position = UDim2.fromOffset(0, 6), ZIndex = 33 })
+			UiKit.Glyph(icon, s.Glyph, s.Color, 2)
+			UiKit.Text(rowF, { Position = UDim2.fromOffset(40, 0), Size = UDim2.new(1, -130, 0, 20), FontFace = UiKit.BodyBold, TextSize = 16, TextColor3 = C.Parchment, TextXAlignment = Enum.TextXAlignment.Left, Text = string.format("[%s] %s  ·  %d mana", Config.Spells.Keys[i] or "?", s.Name, s.Mana), ZIndex = 33 })
+			UiKit.Text(rowF, { Position = UDim2.fromOffset(40, 20), Size = UDim2.new(1, -130, 0, 24), TextSize = 13, TextColor3 = C.Dim, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = s.Description, ZIndex = 33 })
+			if #snap.Spells > 1 then
+				button(rowF, "Forget", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 6), Size = UDim2.fromOffset(80, 28), TextSize = 16 }, function()
+					Remotes.RequestAbility:FireServer("Forget", i)
+				end)
+			end
+		end
+	end
+	add("Read spellbooks to learn more spells. You get more slots at levels " .. table.concat(Config.Spells.SlotLevels, ", ") .. ".", 13, C.Dim)
+	if (snap.PendingPerks or 0) > 0 then
+		add(" ", 6, C.Dim)
+		add("You have a perk to choose - press L.", 16, C.Gold)
 	end
 end
 
@@ -552,10 +700,10 @@ end
 ---------------------------------------------------------------------------
 
 function Panels.ShowJournal(returnTo: string?)
-	local f = panelFrame(560, 620, returnTo == "Menu")
+	local f = panelFrame(580, 640, returnTo == "Menu")
 	ClientState.SetPanel(if returnTo == "Menu" then "Menu" else "Journal")
 	title(f, "Journal")
-	local list = scrolling(f, UDim2.fromOffset(26, 60), UDim2.new(1, -52, 1, -124))
+	local list = scrolling(f, UDim2.fromOffset(26, 64), UDim2.new(1, -52, 1, -128))
 	button(f, "Back", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(160, 38) }, function()
 		if returnTo == "Menu" then
 			Panels.ShowMainMenu()
@@ -574,13 +722,13 @@ function Panels.ShowJournal(returnTo: string?)
 		for _, def in Discoveries.List do
 			if known[def.Id] then
 				count += 1
-				line(list, def.Title .. "   ·   " .. string.lower(def.Category), 20, C.Parchment, def.Order * 2, true)
+				line(list, def.Title .. "   ·   " .. string.lower(def.Category), 21, C.Gold, def.Order * 2, true)
 				line(list, def.Text, 16, C.Text, def.Order * 2 + 1)
 			else
 				line(list, "?  (not discovered yet - a " .. string.lower(def.Category) .. ")", 16, C.LineDim, def.Order * 2)
 			end
 		end
-		line(list, string.format("%d of %d entries discovered", count, #Discoveries.List), 15, C.Dim, 9999)
+		line(list, string.format("%d of %d entries discovered", count, #Discoveries.List), 15, C.Dim, 99999)
 	end
 	local snap = ClientState.Snapshot
 	if ClientState.InRun and snap and snap.Known then
@@ -610,63 +758,40 @@ end
 function Panels.ShowSummary(s)
 	ClientState.SetPanel("Summary")
 	clear()
-	local back = UiKit.Frame(layer, {
-		Name = "Summary",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.new(0, 0, 0),
-		BackgroundTransparency = 0.25,
-		ZIndex = 30,
-	})
+	local back = UiKit.Frame(layer, { Name = "Summary", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.2, ZIndex = 30 })
 	current = back
 
 	local stone = UiKit.Frame(back, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 28),
+		Position = UDim2.new(0.5, 0, 0, 24),
 		Size = UDim2.fromOffset(300, 270),
-		BackgroundColor3 = Color3.fromRGB(96, 92, 86),
+		BackgroundColor3 = Color3.new(1, 1, 1),
 		ZIndex = 31,
 	})
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 110)
-	corner.Parent = stone
-	UiKit.Frame(stone, {
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0.5, 0),
-		BackgroundColor3 = Color3.fromRGB(96, 92, 86),
-		ZIndex = 31,
-	})
-	UiKit.Stroke(stone, Color3.fromRGB(60, 56, 52), 2)
-	local engrave = Color3.fromRGB(34, 30, 28)
+	UiKit.Gradient(stone, Color3.fromRGB(120, 116, 110), Color3.fromRGB(70, 66, 62), 90)
+	UiKit.Corner(stone, 110)
+	local square = UiKit.Frame(stone, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0.5, 0), BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 31 })
+	UiKit.Gradient(square, Color3.fromRGB(96, 92, 87), Color3.fromRGB(70, 66, 62), 90)
+	UiKit.Stroke(stone, Color3.fromRGB(50, 46, 42), 2)
+	local engrave = Color3.fromRGB(30, 26, 24)
 	local function carve(text: string, y: number, size: number, display: boolean?)
-		UiKit.Text(stone, {
-			Position = UDim2.fromOffset(16, y),
-			Size = UDim2.new(1, -32, 0, size + 4),
-			FontFace = if display then UiKit.Display else UiKit.BodyBold,
-			TextSize = size,
-			TextColor3 = engrave,
-			Text = text,
-			ZIndex = 32,
-		})
+		UiKit.Text(stone, { Position = UDim2.fromOffset(16, y), Size = UDim2.new(1, -32, 0, size + 4), FontFace = if display then UiKit.Display else UiKit.BodyBold, TextSize = size, TextColor3 = engrave, Text = text, ZIndex = 32 })
 	end
-	carve("REST", 36, 30, true)
-	carve("IN", 68, 26, true)
-	carve("PEACE", 96, 30, true)
-	carve(s.Name or "", 140, 20)
-	carve(string.format("%d gold", s.Gold or 0), 166, 18)
-	carve(string.lower(s.CauseText or "killed"), 192, 17)
-	carve("on dungeon level " .. s.Depth, 216, 17)
+	carve("REST", 34, 30, true)
+	carve("IN", 66, 26, true)
+	carve("PEACE", 94, 30, true)
+	carve(s.Name or "", 138, 20)
+	carve(string.format("%d gold", s.Gold or 0), 164, 18)
+	carve(string.lower(s.CauseText or "killed"), 190, 17)
+	carve("on dungeon level " .. s.Depth, 214, 17)
 
-	local panel = UiKit.Frame(back, {
+	local panel = UiKit.Ornate(back, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 310),
-		Size = UDim2.new(0, 560, 1, -320),
-		BackgroundColor3 = C.Panel,
-		BackgroundTransparency = 0.05,
+		Position = UDim2.new(0.5, 0, 0, 306),
+		Size = UDim2.new(0, 600, 1, -318),
 		ZIndex = 31,
 	})
-	UiKit.Stroke(panel, C.Line, 1)
-	local list = scrolling(panel, UDim2.fromOffset(22, 12), UDim2.new(1, -44, 1, -76))
+	local list = scrolling(panel, UDim2.fromOffset(22, 14), UDim2.new(1, -44, 1, -78))
 	local o = 0
 	local function add(text: string, size: number, color: Color3, display: boolean?)
 		o += 1
@@ -678,35 +803,36 @@ function Panels.ShowSummary(s)
 	add(string.format("Experience level %d  ·  %s defeated  ·  %s opened  ·  %d:%02d played",
 		s.Level or 1, plural(s.Kills or 0, "monster"), plural(s.Chests or 0, "chest"), s.Duration // 60, s.Duration % 60), 16, C.Text)
 	add(string.format("Wielding: %s  ·  Deepest ever: level %d  ·  Most gold ever: %d", s.Weapon or "?", math.max(1, s.BestDepth), s.BestGold or 0), 15, C.Dim)
+	if s.Spells and #s.Spells > 0 then
+		add("Spells: " .. table.concat(s.Spells, ", "), 15, C.Dim)
+	end
+	if s.Perks and #s.Perks > 0 then
+		add("Perks: " .. table.concat(s.Perks, ", "), 15, C.Dim)
+	end
 	if s.Hint then
 		add(s.Hint, 17, C.Amber)
 	end
 	if #s.Discoveries > 0 then
-		add("Learned this run", 20, C.Parchment, true)
+		add("Learned this run", 20, C.Gold, true)
 		for _, d in s.Discoveries do
 			add("·  " .. d, 16, C.Text)
 		end
 	end
 	if #s.Events > 0 then
-		add("What happened", 20, C.Parchment, true)
+		add("What happened", 20, C.Gold, true)
 		for _, e in s.Events do
 			add("·  " .. e, 16, C.Text)
 		end
 	end
 	add("seed " .. tostring(s.Seed), 13, C.LineDim)
 
-	button(panel, "Play Again", {
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(0.5, -8, 1, -14),
-		Size = UDim2.fromOffset(190, 44),
-	}, function()
-		Panels.StartRun()
+	button(panel, "New Character", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, -195, 1, -14), Size = UDim2.fromOffset(180, 44) }, function()
+		Panels.ShowCreation()
 	end)
-	button(panel, "Main Menu", {
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0.5, 8, 1, -14),
-		Size = UDim2.fromOffset(190, 44),
-	}, function()
+	button(panel, "Same Again", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(180, 44) }, function()
+		Panels.StartRun(ClientState.LastConfig)
+	end)
+	button(panel, "Main Menu", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 195, 1, -14), Size = UDim2.fromOffset(180, 44) }, function()
 		Remotes.RequestMenu:FireServer()
 		Panels.ShowMainMenu()
 	end)
@@ -716,23 +842,19 @@ end
 function Panels.Start(dependencies)
 	deps = dependencies
 	gui = deps.Hud.Gui()
-	layer = UiKit.Frame(gui, {
-		Name = "Panels",
-		BackgroundTransparency = 1,
-		Size = UDim2.fromScale(1, 1),
-		ZIndex = 30,
-	})
+	layer = UiKit.Frame(gui, { Name = "Panels", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 30 })
 
-	-- Keep the inventory up to date while it is open (after Hud stores the
-	-- new snapshot; deferred so several updates coalesce into one rebuild).
+	-- Keep open panels up to date (deferred so updates coalesce).
 	local pending = false
 	Remotes.StateUpdate.OnClientEvent:Connect(function()
-		if ClientState.Panel == "Inventory" and not pending then
+		if (ClientState.Panel == "Inventory" or ClientState.Panel == "Perks") and not pending then
 			pending = true
 			task.defer(function()
 				pending = false
 				if ClientState.Panel == "Inventory" then
 					Panels.ShowInventory()
+				elseif ClientState.Panel == "Perks" then
+					Panels.ShowPerks()
 				end
 			end)
 		end
@@ -743,18 +865,19 @@ function Panels.Start(dependencies)
 		Panels.ShowSummary(s)
 	end)
 	Remotes.FloorEntered.OnClientEvent:Connect(function(_info)
-		if ClientState.Panel == "Summary" or ClientState.Panel == "Menu" then
+		deps.Sanctum.Hide()
+		deps.Atmosphere.SetMode("Dungeon")
+		if ClientState.Panel == "Summary" or ClientState.Panel == "Menu" or ClientState.Panel == "Create" then
 			close()
 		end
 	end)
 
-	-- Enter / A on the death screen plays again.
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed or ClientState.Panel ~= "Summary" then
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.ButtonA then
-			Panels.StartRun()
+			Panels.StartRun(ClientState.LastConfig)
 		end
 	end)
 

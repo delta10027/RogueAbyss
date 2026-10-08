@@ -67,15 +67,43 @@ local function rootOf(player: Player): BasePart?
 	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Moves the character somewhere on the current floor without letting it
+-- fall through floor the client has not streamed in yet: the character is
+-- held anchored until the client reports solid ground under it (or 4s pass).
+function RunDirector.SafeTeleport(run, cf: CFrame)
+	local character = run.Player.Character
+	local root = rootOf(run.Player)
+	if not character or not root then
+		return
+	end
+	root.Anchored = true
+	local token = os.clock()
+	run.ReadyToken = token
+	pcall(function()
+		run.Player:RequestStreamAroundAsync(cf.Position, 4)
+	end)
+	if runs[run.Player] ~= run or not root.Parent then
+		return
+	end
+	character:PivotTo(cf)
+	root.AssemblyLinearVelocity = Vector3.zero
+	run.LastSafePos = cf.Position
+	Remotes.AwaitGround:FireClient(run.Player, token, cf.Position)
+	task.delay(4, function()
+		if run.ReadyToken == token and root.Parent and run.State ~= "Failed" and run.State ~= "Summary" then
+			run.ReadyToken = nil
+			root.Anchored = false
+		end
+	end)
+end
+
 local function placeCharacter(run)
 	local character = run.Player.Character
 	local root = rootOf(run.Player)
 	if not character or not root or not run.Built then
 		return
 	end
-	character:PivotTo(run.Built.Spawn)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.Anchored = false
+	RunDirector.SafeTeleport(run, run.Built.Spawn)
 	S.PlayerStateService.AttachLantern(run)
 	S.PlayerStateService.SetCreep(run, false)
 end
@@ -103,7 +131,7 @@ local function teardownFloor(run)
 		S.RulesService.End(run)
 		S.CreatureService.Cleanup(run)
 		S.ItemService.ClearRun(run)
-		S.AbilityService.ClearRun(run)
+		S.SpellService.ClearRun(run)
 		S.DungeonService.Unload(run.Built)
 		run.Built = nil
 	end
@@ -164,7 +192,7 @@ function RunDirector.EnterFloor(run, depth: number)
 	S.PlayerStateService.Push(run.Player)
 end
 
-function RunDirector.StartRun(player: Player, seed: number?)
+function RunDirector.StartRun(player: Player, seed: number?, config: any?)
 	local old = runs[player]
 	if old then
 		old.State = "Ended"
@@ -200,9 +228,9 @@ function RunDirector.StartRun(player: Player, seed: number?)
 			LastHitBy = nil,
 		},
 	}
-	-- Starting kit, Rogue-style: food and a potion alongside the staff and leather armor.
-	run.PS.Pack[1] = S.PlayerStateService.Entry("Tincture", 1)
-	run.PS.Pack[2] = S.PlayerStateService.Entry("Ration", 1)
+	-- The character the player made: name, boons, flaws, first spell and
+	-- the starting kit (a potion and food alongside the staff and leather).
+	S.ProgressionService.ApplyCreation(run, S.ProgressionService.Validate(player, config))
 	runs[player] = run
 	local data = S.PersistenceService.Get(player)
 	data.Stats.Runs += 1
@@ -268,8 +296,21 @@ function RunDirector.Fail(run, cause: string)
 	if #run.Stats.Missed > 0 then
 		hint = (hint and (hint .. "\n") or "") .. run.Stats.Missed[1]
 	end
+	local Spells = require(Shared.Definitions.Spells)
+	local spellNames = {}
+	for _, id in run.PS.Spells do
+		table.insert(spellNames, Spells.ById[id] and Spells.ById[id].Name or id)
+	end
+	local perkNames = {}
+	local Boons = require(Shared.Definitions.Boons)
+	for id, n in run.Perks or {} do
+		local p = Boons.PerkById[id]
+		table.insert(perkNames, (p and p.Name or id) .. (if n > 1 then " x" .. n else ""))
+	end
 	local summary = {
-		Name = run.Player.DisplayName,
+		Name = run.Character and run.Character.Name or run.Player.DisplayName,
+		Spells = spellNames,
+		Perks = perkNames,
 		Depth = run.Depth,
 		Duration = math.floor(os.clock() - run.Stats.StartTime),
 		Cause = cause,
@@ -302,7 +343,7 @@ local function tickRun(run, dt: number)
 	S.RulesService.Tick(run, dt)
 	S.CreatureService.Tick(run, dt)
 	S.ItemService.Tick(run, dt)
-	S.AbilityService.Tick(run, dt)
+	S.SpellService.Tick(run, dt)
 
 	-- The buried machine clanks on a rhythm while it runs.
 	local machine = run.Built and run.Built.Machine
@@ -320,11 +361,19 @@ local function tickRun(run, dt: number)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = rootOf(run.Player)
 	if humanoid and root then
-		local base = if run.PS.Creep then Config.Player.CreepSpeed else Config.Player.WalkSpeed
 		local wading = S.NoiseService.InWater(run, root.Position)
-		humanoid.WalkSpeed = if wading then base * 0.7 else base
-		if root.Position.Y < run.Built.Origin.Y - 30 then
-			RunDirector.Fail(run, "Abyss")
+		humanoid.WalkSpeed = S.PlayerStateService.MoveSpeed(run, wading)
+		-- Remember the last solid footing; if anything ever drops the explorer
+		-- out of the map, put them back there instead of ending the run.
+		if not root.Anchored and humanoid.FloorMaterial ~= Enum.Material.Air and root.Position.Y > run.Built.Origin.Y - 2 then
+			run.LastSafePos = root.Position
+		end
+		if root.Position.Y < run.Built.Origin.Y - 25 and not root.Anchored then
+			local back = run.LastSafePos or run.Built.Spawn.Position
+			run.PS.HP = math.max(1, run.PS.HP - 3)
+			S.PlayerStateService.Message(run, "You slip and fall, then climb back out. (-3 health)")
+			task.spawn(RunDirector.SafeTeleport, run, CFrame.new(back + Vector3.new(0, 3, 0)))
+			S.PlayerStateService.Push(run.Player)
 		end
 	end
 end
@@ -352,7 +401,7 @@ local function onCharacter(player: Player, character: Model)
 		-- Waiting at the main menu; the run starts when they press Play.
 		return
 	elseif run.PendingRestart then
-		local ok, err = pcall(RunDirector.StartRun, player)
+		local ok, err = pcall(RunDirector.StartRun, player, nil, run.PendingConfig)
 		if not ok then
 			warn("[RunDirector] could not start run: " .. tostring(err))
 		end
@@ -419,7 +468,17 @@ function RunDirector.Init(registry)
 			InRun = run ~= nil and run.State == "Active",
 		}
 	end
-	Remotes.RequestRestart.OnServerEvent:Connect(function(player)
+	Remotes.ClientReady.OnServerEvent:Connect(function(player, token)
+		local run = runs[player]
+		if run and run.ReadyToken and token == run.ReadyToken then
+			run.ReadyToken = nil
+			local root = rootOf(player)
+			if root and run.State ~= "Failed" and run.State ~= "Summary" then
+				root.Anchored = false
+			end
+		end
+	end)
+	Remotes.RequestRestart.OnServerEvent:Connect(function(player, config)
 		local run = runs[player]
 		if run and run.State == "Transition" then
 			return
@@ -433,11 +492,12 @@ function RunDirector.Init(registry)
 			-- Start once the respawn arrives (see onCharacter).
 			if run then
 				run.PendingRestart = true
+				run.PendingConfig = config
 			end
 			return
 		end
 		local ok, err = pcall(function()
-			local newRun = RunDirector.StartRun(player)
+			local newRun = RunDirector.StartRun(player, nil, config)
 			newRun.RestartAt = os.clock()
 		end)
 		if not ok then

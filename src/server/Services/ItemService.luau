@@ -68,6 +68,7 @@ function ItemService.LandingPoint(run, target: Vector3, maxRange: number?): Vect
 end
 
 local function oilFire(run, pos: Vector3)
+	S.CombatService.HitBreakables(run, pos, nil, Config.OilFire.Radius, 360, 0, true)
 	local folder = run.Built.Folder
 	local patch = Kit.Part(folder, {
 		Name = "OilFire",
@@ -100,6 +101,10 @@ local function oilFire(run, pos: Vector3)
 	end
 end
 
+function ItemService.StartFire(run, pos: Vector3)
+	oilFire(run, pos)
+end
+
 function ItemService.Kindle(run, brazier, how: string)
 	brazier.SetLit(true)
 	if brazier.Prompt then
@@ -112,13 +117,13 @@ function ItemService.Kindle(run, brazier, how: string)
 end
 
 -- Puts an item on the ground as a pickup. Returns the pickup entry.
-function ItemService.SpawnPickup(run, pos: Vector3, itemId: string, count: number?, bonus: number?, name: string?)
+function ItemService.SpawnPickup(run, pos: Vector3, itemId: string, count: number?, bonus: number?, name: string?, spell: string?)
 	local def = Items[itemId]
 	local folder = run.Built.Folder:FindFirstChild("Items") or run.Built.Folder
-	local model = Fixtures.ItemModel(folder, pos, itemId, if def then def.Color else Kit.Palette.Gold, if def then def.Category else nil)
+	local model = Fixtures.ItemModel(folder, pos, itemId, if def then def.Color else Kit.Palette.Gold, if def then def.Category else nil, bonus)
 	local idx = #run.Built.Items + 1
-	local e = { ItemId = itemId, Count = count or 1, Bonus = bonus or 0, Name = name, Model = model, Pos = pos, Taken = false, Prompt = nil :: any }
-	local label = if itemId == "Gold" then (e.Count .. " gold") else (name or Items.EntryName({ Id = itemId, Count = e.Count, Bonus = e.Bonus }))
+	local e = { ItemId = itemId, Count = count or 1, Bonus = bonus or 0, Spell = spell, Name = name, Model = model, Pos = pos, Taken = false, Prompt = nil :: any }
+	local label = if itemId == "Gold" then (e.Count .. " gold") else (name or Items.EntryName({ Id = itemId, Count = e.Count, Bonus = e.Bonus, Spell = spell }))
 	e.Prompt = Fixtures.Prompt(model.PrimaryPart :: BasePart, "Take", label, tostring(idx), 7)
 	run.Built.Items[idx] = e
 	return e
@@ -170,14 +175,18 @@ local function readScroll(run, itemId: string): boolean
 	local ps = run.PS
 	if itemId == "EnchantWeapon" then
 		ps.Weapon.Bonus += 1
-		msg(run, "Your " .. Items[ps.Weapon.Id].Name .. " glows blue for a moment. (+1 damage)")
+		msg(run, "Your " .. Items[ps.Weapon.Id].Name .. " glows blue. (+1 damage)")
+		S.PlayerStateService.DressGear(run)
+		Remotes.Effect:FireClient(run.Player, { Kind = "Enchant" })
 	elseif itemId == "EnchantArmor" then
 		if not ps.Armor then
 			msg(run, "You are not wearing any armor.")
 			return false
 		end
 		ps.Armor.Bonus += 1
-		msg(run, "Your armor glows silver for a moment. (+1 armor)")
+		msg(run, "Your armor is etched with glowing runes. (+1 armor)")
+		S.PlayerStateService.DressGear(run)
+		Remotes.Effect:FireClient(run.Player, { Kind = "Enchant" })
 	elseif itemId == "MagicMapping" then
 		local d = run.Built.Descent
 		if d and d.Pos then
@@ -205,12 +214,22 @@ local function drinkPotion(run, def): boolean
 			msg(run, "You are already at full health.")
 			return false
 		end
-		S.PlayerStateService.Heal(run, def.Heal or 8)
+		S.PlayerStateService.Heal(run, def.Heal or 12)
 		msg(run, "You begin to feel better.")
+		Remotes.Effect:FireClient(run.Player, { Kind = "Heal" })
 	elseif def.Id == "ExtraHealing" then
-		ps.MaxHP += 2
+		ps.ExtraMaxHP = (ps.ExtraMaxHP or 0) + 3
+		S.ProgressionService.Recalc(run)
 		ps.HP = ps.MaxHP
-		msg(run, "You feel much better. (Max health +2)")
+		msg(run, "You feel much better. (Max health +3)")
+		Remotes.Effect:FireClient(run.Player, { Kind = "Heal" })
+	elseif def.Id == "ManaPotion" then
+		if ps.Mana >= ps.MaxMana - 0.5 then
+			msg(run, "Your mana is already full.")
+			return false
+		end
+		ps.Mana = ps.MaxMana
+		msg(run, "Magic surges through you. (Mana restored)")
 	elseif def.Id == "StrengthPotion" then
 		ps.Str += 1
 		msg(run, "You feel stronger. What bulging muscles! (Strength " .. ps.Str .. ")")
@@ -245,13 +264,21 @@ function ItemService.Use(run, slot: number, target: Vector3?)
 		end
 		return
 	elseif def.Use == "Eat" then
-		if run.PS.HP >= run.PS.MaxHP then
+		if run.PS.HP >= run.PS.MaxHP and run.PS.Stamina >= run.PS.MaxStamina then
 			msg(run, "You are not hungry.")
 			return
 		end
 		S.PlayerStateService.TakeOne(run, slot)
-		S.PlayerStateService.Heal(run, def.Heal or 4)
+		run.PS.Stamina = run.PS.MaxStamina
+		run.PS.WindedUntil = 0
+		S.PlayerStateService.Heal(run, def.Heal or 6)
 		msg(run, "Yum, that tasted good.")
+		return
+	elseif def.Use == "Read" and itemId == "Spellbook" then
+		if it.Spell and S.SpellService.Learn(run, it.Spell) then
+			S.PlayerStateService.TakeOne(run, slot)
+			S.PlayerStateService.Push(run.Player)
+		end
 		return
 	elseif def.Use == "Read" then
 		if readScroll(run, itemId) then
@@ -316,7 +343,7 @@ function ItemService.Drop(run, slot: number)
 	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
 	local pos = ItemService.LandingPoint(run, root.Position + look * 3, 3) or root.Position
 	run.PS.Pack[slot] = false
-	ItemService.SpawnPickup(run, pos, it.Id, it.Count, it.Bonus)
+	ItemService.SpawnPickup(run, pos, it.Id, it.Count, it.Bonus, nil, it.Spell)
 	msg(run, "You drop " .. aOrAn(Items.EntryName(it)) .. ".")
 	S.PlayerStateService.Push(run.Player)
 end
@@ -343,18 +370,20 @@ function ItemService.Pickup(run, idx: number): boolean
 		msg(run, string.format("You found %d gold pieces.", entry.Count or 1))
 		return true
 	end
-	if not S.PlayerStateService.AddItem(run, entry.ItemId, entry.Count, entry.Bonus) then
+	if not S.PlayerStateService.AddItem(run, entry.ItemId, entry.Count, entry.Bonus, entry.Spell) then
 		msg(run, "Your pack is full. Drop something first (I to open your inventory).")
 		return false
 	end
 	entry.Taken = true
 	entry.Model:Destroy()
-	local name = Items.EntryName({ Id = entry.ItemId, Count = entry.Count or 1, Bonus = entry.Bonus or 0 })
+	local name = Items.EntryName({ Id = entry.ItemId, Count = entry.Count or 1, Bonus = entry.Bonus or 0, Spell = entry.Spell })
 	local slot = S.PlayerStateService.FindItem(run, entry.ItemId)
 	local hint = ""
 	local def = Items[entry.ItemId]
 	if def and (def.Category == "Weapon" or def.Category == "Armor") then
 		hint = " Open your inventory (I) to equip it."
+	elseif def and def.Category == "Book" then
+		hint = " Read it (I, or right click) to learn the spell."
 	end
 	msg(run, "You now have " .. aOrAn(name) .. (if slot and slot <= Config.Player.HotbarSlots then " (slot " .. slot .. ")." else ".") .. hint)
 	Remotes.Effect:FireClient(run.Player, { Kind = "Pickup", Item = entry.ItemId })
@@ -374,19 +403,73 @@ function ItemService.OpenChest(run, chest)
 	local gold = Loot.Gold(stream, run.Depth, q)
 	S.PlayerStateService.AddGold(run, gold)
 	local found = { gold .. " gold" }
-	local count = if q >= 3 then 3 elseif stream:Chance(0.45) then 2 else 1
+	local count = (if q >= 3 then 3 elseif stream:Chance(0.45) then 2 else 1) + math.floor((run.Mods and run.Mods.LootLuck) or 0)
 	for i = 1, count do
 		local roll = Loot.Roll(stream, run.Depth, q)
 		local a = (i - (count + 1) / 2) * 2.4
 		local spot = chest.Pos + chest.Front * 3.2 + chest.Right * a
-		ItemService.SpawnPickup(run, spot, roll.ItemId, roll.Count, roll.Bonus)
-		table.insert(found, aOrAn(Items.EntryName({ Id = roll.ItemId, Count = roll.Count, Bonus = roll.Bonus })))
+		ItemService.SpawnPickup(run, spot, roll.ItemId, roll.Count, roll.Bonus, nil, roll.Spell)
+		table.insert(found, aOrAn(Items.EntryName({ Id = roll.ItemId, Count = roll.Count, Bonus = roll.Bonus, Spell = roll.Spell })))
 	end
 	S.NoiseService.Emit(run, chest.Pos, Config.Chest.Noise, "Door", true)
 	Remotes.Effect:FireClient(run.Player, { Kind = "Chest", Pos = chest.Pos })
 	msg(run, "You open the chest: " .. table.concat(found, ", ") .. ".")
 	run.Stats.ChestsOpened = (run.Stats.ChestsOpened or 0) + 1
 	S.RunDirector.RecordEvent(run, "Chest", "Opened a chest.")
+end
+
+-- An elite's bonus drop.
+function ItemService.DropLoot(run, pos: Vector3, quality: number)
+	local roll = Loot.Roll(RNG.new(math.random(1, 2 ^ 30)), run.Depth, quality)
+	ItemService.SpawnPickup(run, pos, roll.ItemId, roll.Count, roll.Bonus, nil, roll.Spell)
+end
+
+-- Pots, crates and barrels. `fire` lights oil barrels even at force 0.
+function ItemService.DamageBreakable(run, b, force: number, fromPos: Vector3, fire: boolean?)
+	if b.Broken then
+		return
+	end
+	if b.Kind == "OilBarrel" and (fire or force > 0) then
+		b.Broken = true
+		b.Break(fromPos)
+		Remotes.Effect:FireClient(run.Player, { Kind = "Break", Pos = b.Pos, Material = b.Kind })
+		task.delay(0.15, function()
+			if run.State == "Active" and run.Built then
+				S.CombatService.Explode(run, b.Pos, 11, 14 + run.Depth * 2, { Source = "Fire", Fire = true, Burn = 3, HurtPlayer = true, Big = true })
+				oilFire(run, b.Pos)
+				S.DiscoveryService.Discover(run.Player, "OilBarrel")
+			end
+		end)
+		return
+	end
+	if force <= 0 then
+		return
+	end
+	b.HP -= force
+	Remotes.Effect:FireClient(run.Player, { Kind = "BreakHit", Pos = b.Pos, Material = b.Kind })
+	if b.HP > 0 then
+		b.Shake()
+		return
+	end
+	b.Broken = true
+	b.Break(fromPos)
+	Remotes.Effect:FireClient(run.Player, { Kind = "Break", Pos = b.Pos, Material = b.Kind })
+	S.NoiseService.Emit(run, b.Pos, 14, "Shatter", true)
+	run.Stats.Smashed = (run.Stats.Smashed or 0) + 1
+	-- What was inside (deterministic per seed).
+	local stream = RNG.Stream(run.Seed, run.Depth, "break:" .. b.Id)
+	local ground = Vector3.new(b.Pos.X, run.Built.Origin.Y, b.Pos.Z)
+	local r = stream:Float()
+	if r < 0.32 then
+		ItemService.SpawnPickup(run, ground, "Gold", stream:Int(2 + run.Depth, 6 + run.Depth * 3))
+	elseif r < 0.44 then
+		local roll = Loot.Roll(stream, run.Depth, 1)
+		ItemService.SpawnPickup(run, ground, roll.ItemId, roll.Count, roll.Bonus, nil, roll.Spell)
+	elseif r < 0.48 and b.Kind ~= "Pot" then
+		-- Rats nest in old crates.
+		S.CreatureService.SpawnOne(run, "Rat", ground, {})
+		msg(run, "Rats spill out of the " .. string.lower(b.Kind) .. "!")
+	end
 end
 
 -- A monster's dropped gold.

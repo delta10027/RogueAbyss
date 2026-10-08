@@ -10,6 +10,7 @@ local Debris = game:GetService("Debris")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
 local Kit = require(script.Parent.Kit)
+local Gear = require(script.Parent.Gear)
 
 local P = Kit.Palette
 local Grid = Config.Grid
@@ -549,27 +550,163 @@ function Fixtures.Chest(parent: Instance, pos: Vector3, facing: Vector3, quality
 	return model, body, open
 end
 
+-- Breakable props: pots, crates, barrels and red oil barrels. Returns a
+-- handle with Shake() and Break(fromPos); ItemService decides the outcome.
+local BREAKABLE = {
+	Pot = { HP = 1, Radius = 1.1 },
+	Crate = { HP = 2, Radius = 1.6 },
+	Barrel = { HP = 2, Radius = 1.3 },
+	OilBarrel = { HP = 1, Radius = 1.3 },
+}
+
+function Fixtures.Breakable(parent: Instance, pos: Vector3, kind: string, yaw: number, id: string)
+	local spec = BREAKABLE[kind] or BREAKABLE.Pot
+	local model = Kit.Model(parent, kind)
+	local cf = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	local pieces: { BasePart } = {}
+	local function add(p: BasePart)
+		table.insert(pieces, p)
+		return p
+	end
+	local debrisColor: Color3
+	local debrisMat: Enum.Material
+	if kind == "Pot" then
+		debrisColor, debrisMat = Color3.fromRGB(130, 82, 58), Enum.Material.Slate
+		add(Kit.Part(model, { Name = "Belly", Shape = Enum.PartType.Ball, Size = Vector3.new(1.8, 1.8, 1.8), CFrame = cf * CFrame.new(0, 0.9, 0), Color = debrisColor, Material = debrisMat }))
+		add(Kit.Part(model, { Name = "Neck", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.6, 1, 1), CFrame = cf * CFrame.new(0, 1.9, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(110, 70, 50), Material = debrisMat, CanCollide = false }))
+		add(Kit.Part(model, { Name = "Band", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 1.85, 1.85), CFrame = cf * CFrame.new(0, 1.1, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(90, 60, 44), Material = debrisMat, CanCollide = false }))
+	elseif kind == "Crate" then
+		debrisColor, debrisMat = Color3.fromRGB(104, 76, 50), Enum.Material.WoodPlanks
+		add(Kit.Part(model, { Name = "Box", Size = Vector3.new(2.6, 2.4, 2.6), CFrame = cf * CFrame.new(0, 1.2, 0), Color = debrisColor, Material = debrisMat }))
+		for _, x in { -1.25, 1.25 } do
+			add(Kit.Part(model, { Name = "Slat", Size = Vector3.new(0.2, 2.45, 2.65), CFrame = cf * CFrame.new(x, 1.2, 0), Color = Color3.fromRGB(80, 58, 40), Material = Enum.Material.Wood, CanCollide = false }))
+		end
+		add(Kit.Part(model, { Name = "Brace", Size = Vector3.new(2.65, 0.25, 0.25), CFrame = cf * CFrame.new(0, 1.2, -1.32) * CFrame.Angles(0, 0, math.rad(40)), Color = Color3.fromRGB(80, 58, 40), Material = Enum.Material.Wood, CanCollide = false }))
+	else
+		local oil = kind == "OilBarrel"
+		debrisColor, debrisMat = if oil then Color3.fromRGB(120, 36, 30) else Color3.fromRGB(96, 70, 46), Enum.Material.Wood
+		add(Kit.Part(model, { Name = "Stave", Shape = Enum.PartType.Cylinder, Size = Vector3.new(2.8, 2.2, 2.2), CFrame = cf * CFrame.new(0, 1.4, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = debrisColor, Material = debrisMat }))
+		for _, y in { 0.5, 2.3 } do
+			add(Kit.Part(model, { Name = "Hoop", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.22, 2.3, 2.3), CFrame = cf * CFrame.new(0, y, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = P.OldIron, Material = Enum.Material.Metal, CanCollide = false }))
+		end
+		if oil then
+			add(Kit.Part(model, { Name = "Mark", Size = Vector3.new(0.8, 0.8, 0.1), CFrame = cf * CFrame.new(0, 1.4, -1.12), Color = Color3.fromRGB(230, 190, 90), Material = Enum.Material.SmoothPlastic, CanCollide = false }))
+			add(Kit.Part(model, { Name = "Spill", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.05, 3, 3), CFrame = cf * CFrame.new(0.6, 0.03, -0.8) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(30, 22, 16), Material = Enum.Material.Glass, CanCollide = false }))
+		end
+	end
+	model:SetAttribute("Breakable", id)
+	local handle = {
+		Id = id,
+		Kind = kind,
+		Model = model,
+		Pos = pos + Vector3.new(0, 1, 0),
+		Radius = spec.Radius,
+		HP = spec.HP,
+		Broken = false,
+		Shake = nil :: any,
+		Break = nil :: any,
+	}
+	function handle.Shake()
+		for _, p in pieces do
+			if p.Parent then
+				local home = p.CFrame
+				p.CFrame = home * CFrame.Angles(0, 0, math.rad(8))
+				TweenService:Create(p, TweenInfo.new(0.25, Enum.EasingStyle.Elastic), { CFrame = home }):Play()
+			end
+		end
+	end
+	function handle.Break(fromPos: Vector3)
+		local center = pos + Vector3.new(0, 1, 0)
+		model:Destroy()
+		-- Shards fly away from the blow and fade.
+		local rng = Random.new()
+		for _ = 1, if kind == "Pot" then 9 else 7 do
+			local shard = Instance.new("Part")
+			shard.Size = Vector3.new(rng:NextNumber(0.3, 0.9), rng:NextNumber(0.15, 0.4), rng:NextNumber(0.3, 1))
+			shard.CFrame = CFrame.new(center + Vector3.new(rng:NextNumber(-0.8, 0.8), rng:NextNumber(-0.5, 0.8), rng:NextNumber(-0.8, 0.8))) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0)
+			shard.Color = debrisColor
+			shard.Material = debrisMat
+			shard.CollisionGroup = "Debris"
+			shard.CanQuery = false
+			shard.CanTouch = false
+			local away = center - fromPos
+			away = Vector3.new(away.X, 0, away.Z)
+			local dir = (if away.Magnitude > 0.1 then away.Unit else Vector3.xAxis) + Vector3.new(rng:NextNumber(-0.7, 0.7), 0, rng:NextNumber(-0.7, 0.7))
+			shard.AssemblyLinearVelocity = dir * rng:NextNumber(10, 22) + Vector3.new(0, rng:NextNumber(10, 20), 0)
+			shard.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-10, 10), rng:NextNumber(-10, 10), rng:NextNumber(-10, 10))
+			shard.Parent = parent
+			task.delay(1.8, function()
+				if shard.Parent then
+					TweenService:Create(shard, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+				end
+			end)
+			Debris:AddItem(shard, 2.8)
+		end
+	end
+	return handle
+end
+
+-- A wall torch: an iron sconce and a flickering flame (client flickers lights tagged "Flicker").
+function Fixtures.WallTorch(parent: Instance, pos: Vector3, outward: Vector3)
+	local cf = CFrame.lookAt(pos, pos + outward)
+	Kit.Part(parent, { Name = "Sconce", Size = Vector3.new(0.4, 0.4, 1.2), CFrame = cf * CFrame.new(0, 0, -0.5), Color = P.OldIron, Material = Enum.Material.Metal, CanCollide = false })
+	local cup = Kit.Part(parent, { Name = "TorchCup", Size = Vector3.new(0.7, 0.5, 0.7), CFrame = cf * CFrame.new(0, 0.3, -1.1), Color = P.OldIron, Material = Enum.Material.Metal, CanCollide = false })
+	local at = Kit.Attachment(cup, Vector3.new(0, 0.5, 0))
+	Kit.Flame(at, 0.9)
+	local light = Kit.PointLight(at, Color3.fromRGB(255, 170, 90), 18, 1.2, true)
+	CollectionService:AddTag(light, "Flicker")
+	return cup
+end
+
 -- Physical item models (ART_BIBLE §16): small, grounded, no beams.
-function Fixtures.ItemModel(parent: Instance, pos: Vector3, itemId: string, color: Color3, category: string?): Model
+function Fixtures.ItemModel(parent: Instance, pos: Vector3, itemId: string, color: Color3, category: string?, bonus: number?): Model
+	if category == "Weapon" then
+		-- The real weapon model, lying on the floor.
+		local w = Gear.Weapon(itemId, bonus)
+		w.Name = "Item_" .. itemId
+		local len = (w:GetAttribute("Length") :: number?) or 3
+		local yaw = math.rad((pos.X * 37 + pos.Z * 13) % 360)
+		w:PivotTo(CFrame.new(pos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, yaw, 0) * CFrame.new(0, 0, -len / 2) * CFrame.Angles(math.rad(90), 0, 0))
+		for _, d in w:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+			elseif d:IsA("Trail") or d:IsA("WeldConstraint") then
+				d:Destroy()
+			end
+		end
+		local glint = Instance.new("PointLight")
+		glint.Color = Color3.fromRGB(220, 205, 170)
+		glint.Range = 6
+		glint.Brightness = 0.7
+		glint.Shadows = false
+		glint.Parent = w.PrimaryPart
+		w.Parent = parent
+		return w
+	end
 	local model = Kit.Model(parent, "Item_" .. itemId)
 	local base: BasePart
-	if category == "Weapon" then
+	if category == "Book" then
 		base = Kit.Part(model, {
 			Name = "Body",
-			Size = Vector3.new(0.35, 0.25, 3.4),
-			CFrame = CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, math.rad(35), 0),
-			Color = color,
-			Material = Enum.Material.Metal,
+			Size = Vector3.new(1.5, 0.35, 1.1),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, math.rad(25), 0),
+			Color = Color3.fromRGB(70, 40, 80),
+			Material = Enum.Material.Leather,
 			CanCollide = false,
 		})
 		Kit.Deco(model, {
-			Size = Vector3.new(1.3, 0.3, 0.3),
-			CFrame = base.CFrame * CFrame.new(0, 0, 1.1),
-			Color = P.DarkBrown,
-			Material = Enum.Material.Wood,
+			Size = Vector3.new(1.35, 0.3, 1.0),
+			CFrame = base.CFrame * CFrame.new(0.06, 0.02, 0),
+			Color = P.Parchment,
+			Material = Enum.Material.Fabric,
 		})
-		-- A faint glint so gear reads in the dark.
-		Kit.PointLight(base, Color3.fromRGB(200, 190, 160), 5, 0.6, false)
+		local sigil = Kit.Deco(model, {
+			Size = Vector3.new(0.5, 0.05, 0.5),
+			CFrame = base.CFrame * CFrame.new(0, 0.18, 0) * CFrame.Angles(0, math.rad(45), 0),
+			Color = Color3.fromRGB(190, 150, 255),
+			Material = Enum.Material.Neon,
+		})
+		Kit.PointLight(sigil, Color3.fromRGB(170, 130, 255), 7, 1, false)
 	elseif category == "Armor" then
 		base = Kit.Part(model, {
 			Name = "Body",

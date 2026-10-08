@@ -34,7 +34,7 @@ function LightService.Flames(run): { Source }
 	end
 	-- The Light spell counts as firelight.
 	for _, l in run.Lights or {} do
-		table.insert(out, { Pos = l.Pos, Radius = S.AbilityService.LightRadius, Kind = "Spell", Ref = l })
+		table.insert(out, { Pos = l.Pos, Radius = S.SpellService.LightRadius, Kind = "Spell", Ref = l })
 	end
 	return out
 end

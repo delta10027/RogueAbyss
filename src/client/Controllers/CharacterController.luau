@@ -82,8 +82,32 @@ function CharacterController.Dash()
 	end)
 end
 
+-- The server holds us anchored after a teleport until the floor under the
+-- new position has streamed in; tell it once we can see solid ground.
+local function awaitGround(token: number, pos: Vector3)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local character = Players.LocalPlayer.Character
+	params.FilterDescendantsInstances = if character then { character } else {}
+	local start = os.clock()
+	while os.clock() - start < 6 do
+		local hit = Workspace:Raycast(pos + Vector3.new(0, 2, 0), Vector3.new(0, -12, 0), params)
+		if hit then
+			task.wait(0.15)
+			break
+		end
+		task.wait(0.1)
+	end
+	game:GetService("ReplicatedStorage").Remotes.ClientReady:FireServer(token)
+end
+
 function CharacterController.Start()
 	local player = Players.LocalPlayer
+	game:GetService("ReplicatedStorage"):WaitForChild("Remotes").AwaitGround.OnClientEvent:Connect(function(token, pos)
+		if typeof(pos) == "Vector3" then
+			task.spawn(awaitGround, token, pos)
+		end
+	end)
 	if player.Character then
 		task.spawn(setupCharacter, player.Character)
 	end

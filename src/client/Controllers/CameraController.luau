@@ -1,7 +1,8 @@
 --!strict
 -- Elevated, fixed-angle camera that looks into the dungeon like a physical
--- miniature (GAME_DESIGN §23). No shake, no cinematic effects. Walls that
--- block the view of the explorer fade locally.
+-- miniature (GAME_DESIGN §23). Short, small shakes punctuate heavy hits.
+-- Walls that block the view of the explorer fade locally. While the menu
+-- scene runs (ClientState.CameraOverride) this controller stays out of it.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -31,6 +32,20 @@ end
 
 function CameraController.Rotate(steps: number)
 	targetYaw += steps * math.rad(90)
+end
+
+local shakeUntil = 0
+local shakeStart = 0
+local shakeMag = 0
+
+-- A brief jolt. `magnitude` is in studs.
+function CameraController.Shake(magnitude: number, seconds: number)
+	local now = os.clock()
+	if now > shakeUntil or magnitude >= shakeMag then
+		shakeMag = magnitude
+		shakeStart = now
+		shakeUntil = now + seconds
+	end
 end
 
 function CameraController.Zoom(delta: number)
@@ -83,6 +98,9 @@ function CameraController.Start()
 	local occluderTimer = 0
 	RunService:BindToRenderStep("RogueAbyssCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
 		camera.CameraType = Enum.CameraType.Scriptable
+		if ClientState.CameraOverride then
+			return
+		end
 		local character = Players.LocalPlayer.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if not root then
@@ -99,7 +117,14 @@ function CameraController.Start()
 		local offset = CFrame.Angles(0, yaw, 0):VectorToWorldSpace(Vector3.new(0, math.sin(PITCH), math.cos(PITCH)) * distance)
 		local f = focus :: Vector3
 		local camPos = f + offset
-		camera.CFrame = CFrame.lookAt(camPos, f)
+		local cf = CFrame.lookAt(camPos, f)
+		local now = os.clock()
+		if now < shakeUntil then
+			local k = 1 - (now - shakeStart) / math.max(0.01, shakeUntil - shakeStart)
+			local m = shakeMag * k * k
+			cf *= CFrame.new((math.noise(now * 40, 1) * 2) * m, (math.noise(now * 40, 2) * 2) * m, 0)
+		end
+		camera.CFrame = cf
 		camera.FieldOfView = 50
 		occluderTimer += dt
 		if occluderTimer > 0.05 then

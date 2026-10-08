@@ -2,16 +2,23 @@
 -- Loot tables for floor items and chests. Pure data + a roll function that
 -- takes an RNG stream, so generation stays deterministic per seed.
 
+local Spells = require(script.Parent.Spells)
+
 local Loot = {}
 
-export type Roll = { ItemId: string, Count: number, Bonus: number }
+export type Roll = { ItemId: string, Count: number, Bonus: number, Spell: string? }
 
 local WEAPONS = {
 	{ Id = "Dagger", MinDepth = 1, Weight = 3 },
 	{ Id = "Mace", MinDepth = 1, Weight = 3 },
 	{ Id = "Spear", MinDepth = 1, Weight = 2.5 },
 	{ Id = "LongSword", MinDepth = 2, Weight = 2 },
+	{ Id = "BattleAxe", MinDepth = 2, Weight = 1.6 },
 	{ Id = "TwoHandedSword", MinDepth = 3, Weight = 1.2 },
+	{ Id = "StaffOfFire", MinDepth = 2, Weight = 1 },
+	{ Id = "StaffOfFrost", MinDepth = 2, Weight = 1 },
+	{ Id = "StaffOfStorms", MinDepth = 4, Weight = 0.8 },
+	{ Id = "StaffOfShadows", MinDepth = 5, Weight = 0.6 },
 }
 
 local ARMOR = {
@@ -22,7 +29,7 @@ local ARMOR = {
 	{ Id = "PlateMail", MinDepth = 5, Weight = 1 },
 }
 
-local POTIONS = { Tincture = 6, ExtraHealing = 1.2, StrengthPotion = 1.5 }
+local POTIONS = { Tincture = 6, ExtraHealing = 1.2, StrengthPotion = 1.5, ManaPotion = 2.5 }
 local SCROLLS = { EnchantWeapon = 2, EnchantArmor = 2, MagicMapping = 2.5, Teleportation = 2 }
 
 local function pickGear(stream, list, depth: number): string
@@ -50,6 +57,7 @@ function Loot.Roll(stream, depth: number, quality: number): Roll
 	local kind = stream:Weighted({
 		Potion = 30,
 		Scroll = 20,
+		Book = 6 + 4 * quality,
 		Weapon = 10 + 4 * quality,
 		Armor = 8 + 4 * quality,
 		Food = 12,
@@ -63,10 +71,20 @@ function Loot.Roll(stream, depth: number, quality: number): Roll
 		return { ItemId = stream:Weighted(POTIONS) :: string, Count = 1, Bonus = 0 }
 	elseif kind == "Scroll" then
 		return { ItemId = stream:Weighted(SCROLLS) :: string, Count = 1, Bonus = 0 }
+	elseif kind == "Book" then
+		return Loot.Spellbook(stream)
 	elseif kind == "Food" then
 		return { ItemId = "Ration", Count = 1, Bonus = 0 }
 	end
 	return { ItemId = "OilFlask", Count = 1, Bonus = 0 }
+end
+
+function Loot.Spellbook(stream): Roll
+	local weights = {}
+	for _, s in Spells.List do
+		weights[s.Id] = s.Rarity
+	end
+	return { ItemId = "Spellbook", Count = 1, Bonus = 0, Spell = stream:Weighted(weights) }
 end
 
 function Loot.Gold(stream, depth: number, quality: number): number
