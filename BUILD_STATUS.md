@@ -228,35 +228,35 @@ This section is the highest-priority playtest checklist.
 
 
 
-\* \[ ] Seeded RNG
+\* \[x] Seeded RNG
 
-\* \[ ] Logical floor graph
+\* \[x] Logical floor graph
 
-\* \[ ] Start placement
+\* \[x] Start placement
 
-\* \[ ] Descent placement
+\* \[x] Descent placement
 
-\* \[ ] Room archetypes
+\* \[x] Room archetypes
 
-\* \[ ] Connections
+\* \[x] Connections
 
-\* \[ ] Branches
+\* \[x] Branches
 
-\* \[ ] Landmarks
+\* \[x] Landmarks
 
-\* \[ ] Secret candidates
+\* \[x] Secret candidates
 
-\* \[ ] Encounter slots
+\* \[x] Encounter slots
 
-\* \[ ] Generation validation
+\* \[x] Generation validation
 
-\* \[ ] Deterministic repair
+\* \[x] Deterministic repair
 
-\* \[ ] Deterministic regeneration
+\* \[x] Deterministic regeneration
 
-\* \[ ] Debug seed loading
+\* \[?] Debug seed loading
 
-\* \[ ] Procedural soak testing
+\* \[x] Procedural soak testing
 
 
 
@@ -814,7 +814,7 @@ Before release:
 
 
 
-\*\*PHASE 0 — DESIGN / PRE-PRODUCTION\*\*
+\*\*PHASE 1–4 — PLAYABLE VERTICAL SLICE (needs playtesting)\*\*
 
 
 
@@ -822,7 +822,18 @@ Before release:
 
 
 
-Not implemented.
+Vertical slice implemented and launching without errors in Studio (2026-10-08).
+Only dungeon generation is verified so far (soak test: 420 floors, 0 failures, deterministic).
+Everything else below is built but marked untested until a playtest confirms it.
+
+Built: per-player runs, seeded 3x3/4x3/4x4 floors, 13 room archetypes, 3 floor rules
+(Echoes, Hungry Dark, Tolling), Listener + Watcher creatures, oil flask / tin bell /
+tincture / rusted key, noise system with visible rings, lantern fuel + dimming, creeping,
+staff strike, cracked-wall secrets, vaults, shrine, buried machine, camp notes, draft dust law,
+journal, run summary, fast restart, versioned DataStore persistence, /ra debug commands.
+
+Blender creature meshes (Listener, Watcher) exported to blender/exports/. Game uses them
+from ServerStorage.Assets.Creatures.<Kind> once imported; part-built bodies otherwise.
 
 
 
@@ -1013,6 +1024,20 @@ After meaningful implementation work, update this file.
 
 
 \# 24. CHANGE LOG
+
+
+
+\## 2026-10-08 (implementation)
+
+
+
+\* Built full vertical slice (see Current playable state)
+
+\* Generation soak-tested: 60 seeds x 7 depths, 0 failures, deterministic
+
+\* Listener and Watcher modelled in Blender, exported as FBX
+
+\* Removed Lighting.Technology from project.json (plugins cannot set it; set Future manually)
 
 
 

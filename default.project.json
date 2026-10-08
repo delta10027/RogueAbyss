@@ -61,8 +61,7 @@
         "Outlines": false,
         "FogColor": [0.02, 0.02, 0.025],
         "FogStart": 70,
-        "FogEnd": 160,
-        "Technology": "Future"
+        "FogEnd": 160
       }
     },
     "SoundService": {
