@@ -6,6 +6,19 @@
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "RequestStrike": { "$className": "RemoteEvent" },
+        "RequestUseItem": { "$className": "RemoteEvent" },
+        "RequestLantern": { "$className": "RemoteEvent" },
+        "RequestCreep": { "$className": "RemoteEvent" },
+        "RequestRestart": { "$className": "RemoteEvent" },
+        "StateUpdate": { "$className": "RemoteEvent" },
+        "Notice": { "$className": "RemoteEvent" },
+        "FloorEntered": { "$className": "RemoteEvent" },
+        "RunEnded": { "$className": "RemoteEvent" },
+        "Effect": { "$className": "RemoteEvent" }
       }
     },
 
@@ -16,6 +29,14 @@
     },
 
     "StarterPlayer": {
+      "$properties": {
+        "CameraMaxZoomDistance": 90,
+        "CameraMinZoomDistance": 20,
+        "CharacterWalkSpeed": 14,
+        "CharacterUseJumpPower": false,
+        "CharacterJumpHeight": 0,
+        "EnableMouseLockOption": false
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"
@@ -26,41 +47,22 @@
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true
-      },
-      "Baseplate": {
-        "$className": "Part",
-        "$properties": {
-          "Anchored": true,
-          "Color": [
-            0.38823,
-            0.37254,
-            0.38823
-          ],
-          "Locked": true,
-          "Position": [
-            0,
-            -10,
-            0
-          ],
-          "Size": [
-            512,
-            20,
-            512
-          ]
-        }
       }
     },
     "Lighting": {
       "$properties": {
-        "Ambient": [
-          0,
-          0,
-          0
-        ],
-        "Brightness": 2,
+        "Ambient": [0.07, 0.06, 0.06],
+        "OutdoorAmbient": [0.05, 0.05, 0.06],
+        "Brightness": 0,
+        "ClockTime": 0,
+        "EnvironmentDiffuseScale": 0,
+        "EnvironmentSpecularScale": 0,
         "GlobalShadows": true,
         "Outlines": false,
-        "Technology": "Voxel"
+        "FogColor": [0.02, 0.02, 0.025],
+        "FogStart": 70,
+        "FogEnd": 160,
+        "Technology": "Future"
       }
     },
     "SoundService": {
