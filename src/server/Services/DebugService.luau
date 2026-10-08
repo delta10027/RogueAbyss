@@ -71,11 +71,58 @@ function DebugService.Run(player: Player, args: { string })
 	end
 end
 
+-- Tooling commands; results are plain strings so they cross any boundary.
+function DebugService.Hook(cmd: string, ...): string
+	local args = { ... }
+	local player = Players:GetPlayers()[1]
+	if not player then
+		return "no player"
+	end
+	local run = S.RunDirector.GetRun(player)
+	if cmd == "run" then
+		DebugService.Run(player, args :: { string })
+		return "ok"
+	elseif not run then
+		return "no run"
+	elseif cmd == "creatures" then
+		local out = {}
+		for _, cr in run.Creatures do
+			local meshes = 0
+			for _, d in cr.Model:GetChildren() do
+				if d:IsA("MeshPart") then
+					meshes += 1
+				end
+			end
+			table.insert(out, string.format("%s state=%s meshes=%d pos=%s", cr.Kind, tostring(cr.State), meshes, tostring(cr.Root.Position)))
+		end
+		return string.format("depth=%d rule=%s state=%s vigor=%d\n", run.Depth, run.Floor.RuleId, run.State, run.PS.Vigor) .. table.concat(out, "\n")
+	elseif cmd == "goto" then
+		-- Stand the player a few studs in front of the first creature of a kind.
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		for _, cr in run.Creatures do
+			if cr.Kind == args[1] and root then
+				local look = cr.Root.CFrame.LookVector
+				local at = cr.Root.Position + Vector3.new(look.X, 0, look.Z) * (tonumber(args[2]) or 10)
+				root.CFrame = CFrame.lookAt(at, Vector3.new(cr.Root.Position.X, at.Y, cr.Root.Position.Z))
+				return "moved to " .. cr.Kind
+			end
+		end
+		return "none"
+	end
+	return "unknown command"
+end
+
 function DebugService.Init(registry)
 	S = registry
 	if RunService:IsStudio() then
-		-- Lets automated tests and the command bar reach the services.
-		(_G :: any).RogueAbyss = registry
+		-- Studio-only hook so tooling can drive and inspect a run:
+		--   ServerScriptService.DebugHook:Invoke("creatures")
+		local hook = Instance.new("BindableFunction")
+		hook.Name = "DebugHook"
+		hook.OnInvoke = function(cmd: string, ...)
+			return DebugService.Hook(cmd, ...)
+		end
+		hook.Parent = game:GetService("ServerScriptService")
 	end
 	local ok = pcall(function()
 		local command = Instance.new("TextChatCommand")

@@ -94,6 +94,7 @@ end
 function PersistenceService.Load(player: Player): Data
 	local ds = getStore()
 	local data = defaultData()
+	local success = false
 	if ds and player.UserId > 0 then
 		for attempt = 1, 3 do
 			local ok, raw = pcall(function()
@@ -101,6 +102,7 @@ function PersistenceService.Load(player: Player): Data
 			end)
 			if ok then
 				data = migrate(raw)
+				success = true
 				break
 			elseif attempt == 3 then
 				if not storeWarned then
@@ -114,7 +116,9 @@ function PersistenceService.Load(player: Player): Data
 	end
 	if player.Parent then
 		cache[player] = data
-		loaded[player] = true
+		-- Only a successful load may be saved over; otherwise this session is
+		-- memory-only and must not overwrite real progress.
+		loaded[player] = success
 	end
 	return data
 end
@@ -136,6 +140,7 @@ function PersistenceService.Save(player: Player)
 	local data = cache[player]
 	local ds = getStore()
 	if not data or not ds or not loaded[player] or player.UserId <= 0 then
+		dirty[player] = nil
 		return
 	end
 	dirty[player] = nil

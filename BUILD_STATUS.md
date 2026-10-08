@@ -832,8 +832,12 @@ tincture / rusted key, noise system with visible rings, lantern fuel + dimming, 
 staff strike, cracked-wall secrets, vaults, shrine, buried machine, camp notes, draft dust law,
 journal, run summary, fast restart, versioned DataStore persistence, /ra debug commands.
 
-Blender creature meshes (Listener, Watcher) exported to blender/exports/. Game uses them
-from ServerStorage.Assets.Creatures.<Kind> once imported; part-built bodies otherwise.
+Blender creature meshes (Listener, Watcher) imported into the place at
+ServerStorage.Assets.Creatures.<Kind> and verified in play (Listener heard, pursued,
+telegraphed and hit). Source: blender/RogueAbyss_Art.blend, exports in blender/exports/.
+These imported models live in the place file only - save the place after changing them.
+
+Studio debug hook: ServerScriptService.DebugHook:Invoke("creatures" | "goto", kind, dist | "run", "floor", n).
 
 
 

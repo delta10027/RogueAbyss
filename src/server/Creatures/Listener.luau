@@ -19,9 +19,10 @@ local C = Config.Listener
 
 local Listener = {}
 
-local ROBE = Color3.fromRGB(46, 42, 44)
+local ROBE = Color3.fromRGB(62, 57, 58)
 local SKIN = Color3.fromRGB(170, 160, 146)
-local FAN = Color3.fromRGB(96, 62, 60)
+-- Desaturated membrane: warm light must not turn it into "danger red".
+local FAN = Color3.fromRGB(88, 78, 74)
 
 local MESH_LOOKS = {
 	Body = { Material = Enum.Material.Fabric, Color = ROBE },

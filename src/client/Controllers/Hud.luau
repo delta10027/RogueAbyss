@@ -177,8 +177,9 @@ local function buildDepth()
 	depthLabel = UiKit.Text(box, {
 		Position = UDim2.fromOffset(46, 0),
 		Size = UDim2.fromOffset(260, 26),
-		FontFace = UiKit.Display,
-		TextSize = 24,
+		-- Body face: Garamond fuses "II" into a single glyph.
+		FontFace = UiKit.BodyBold,
+		TextSize = 22,
 		TextColor3 = C.Parchment,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "",
